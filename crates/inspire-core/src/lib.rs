@@ -3,6 +3,41 @@
 //! This crate defines the foundational types for the two-lane architecture:
 //! - Hot Lane: ~1M entries from top ~1000 contracts (~10 KB queries)
 //! - Cold Lane: ~2.7B entries for everything else (~500 KB queries)
+//!
+//! # Privacy & Threat Model
+//!
+//! The two-lane architecture preserves PIR guarantees **within** each lane.
+//!
+//! ## Adversary Model
+//!
+//! - **Server model**: Single-server, honest-but-curious
+//! - **Security goal**: Query index confidentiality within each lane (RLWE)
+//! - **Non-goals**: Network anonymity, integrity, availability
+//!
+//! ## What the Server Learns
+//!
+//! | Information | Server Knowledge |
+//! |-------------|------------------|
+//! | Query lane (hot/cold) | **YES** - endpoint/size reveals lane |
+//! | Target contract | NO - encrypted by PIR |
+//! | Target storage slot | NO - encrypted by PIR |
+//! | Target index within lane | NO - PIR property |
+//! | Query timing, client identity | YES - via network metadata |
+//!
+//! ## Trade-off
+//!
+//! This is a deliberate trade-off:
+//! - **Privacy cost**: Per query, server learns hot vs cold (~1 bit)
+//! - **Bandwidth gain**: 90% reduction in average query size (500KB -> 60KB)
+//!
+//! ## Public Information
+//!
+//! The following are intentionally public:
+//! - Hot lane manifest (list of contracts in hot lane)
+//! - Lane entry counts
+//! - CRS (cryptographic reference strings)
+//!
+//! For full threat model details, see the project README.
 
 mod lane;
 mod config;

@@ -67,25 +67,83 @@ COLD LANE (~87 GB, 2.7B entries)
 | Dummy Subsets + 10x dummies | 308 KB | Partial |
 | **Two-Lane InsPIRe** | **176 KB** | **Full** |
 
-## Privacy Analysis
+## Privacy & Threat Model
 
-| Property | Guarantee |
-|----------|-----------|
-| Query content | Encrypted (RLWE) |
-| Target index | Computationally hidden |
-| Multi-query correlation | **Immune** |
-| Popularity analysis | **Immune** |
-| Intersection attack | **Immune** |
+### Adversary Model
 
-### Lane Privacy
+- **Server model**: Single-server, honest-but-curious
+  - The server follows the protocol but tries to learn as much as possible from queries
+- **Security goal**: Protect *query index confidentiality* within each lane under standard RLWE assumptions
+- **Non-goals**:
+  - Hiding which user (IP/account) is querying
+  - Hiding that a user is using this service
+  - Protecting integrity/availability of responses
+  - Defending against side-channel attacks
 
-Which lane you query reveals popularity tier:
-- Hot lane -> target is in top 1000 contracts
-- Cold lane -> target is elsewhere
+### Privacy Guarantees
 
-This is acceptable: knowing someone queries "a popular DeFi contract" doesn't reveal which one (1-in-1M).
+| Property | Guarantee | Notes |
+|----------|-----------|-------|
+| Query content | Encrypted (RLWE) | Computationally secure |
+| Target index within lane | Computationally hidden | PIR property |
+| Subset intersection attacks | **Immune** | No dummy-subset intersections |
+| Within-lane popularity signal | **Hidden** | Server cannot distinguish which contract/slot |
+| **Which lane queried** | **Visible to server** | Deliberate trade-off |
+| Cross-query metadata | **Not addressed** | Lane, timing, IP can be correlated |
 
-For maximum privacy, query both lanes every time (one real, one dummy).
+InsPIRe is immune to **dummy-subset intersection and popularity attacks** because the server only sees encrypted PIR queries, not explicit subsets. It can still observe metadata (lane, timing, IP).
+
+### What the Server Learns
+
+The two-lane architecture leaks **which lane** is being accessed:
+
+| Information | Server Knowledge |
+|-------------|------------------|
+| Query lane (hot/cold) | **YES** - endpoint path reveals lane |
+| Target contract | NO - encrypted by PIR |
+| Target storage slot | NO - encrypted by PIR |
+| Target index within lane | NO - PIR property |
+| Query timing | YES - observable |
+
+**Example**: If you query the hot lane, the server learns your target is among the ~1000 popular contracts, but not which one or which slot (~1-in-1M slot-level anonymity, assuming ~1M entries in the hot lane).
+
+### Lane Privacy Trade-off
+
+This is a **deliberate trade-off** to reduce average query size from 500 KB to ~60 KB:
+
+```
+Privacy "cost" (per query):  Server learns hot vs cold (~1 bit of information)
+Bandwidth gain:              90% reduction in average query size (500KB -> 60KB)
+```
+
+This is acceptable because:
+1. Knowing someone queries "a popular DeFi contract" reveals little
+2. The target contract and slot remain hidden (~1-in-1M anonymity set)
+3. Multi-query correlation **at the index level** is still impossible (ciphertexts are semantically secure)
+
+Note: Over many queries, the server can learn a user's hot/cold query pattern unless network-level anonymity is used.
+
+### Maximum Privacy Mode
+
+For applications requiring maximum privacy **with respect to lane selection**, query **both lanes every time**:
+- One lane receives the real query
+- Other lane receives a dummy query (random index)
+
+This hides which lane contains your actual target, at the cost of:
+- **Per-query cost**: ~10KB (hot) + ~500KB (cold) ≈ ~510KB
+- **Hot-lane-heavy workloads**: Similar to single-lane InsPIRe bandwidth (~500KB/query)
+- **Cold-lane queries**: Only ~10KB overhead from hot-lane dummy
+
+In other words, **maximum-privacy mode trades away the 90% bandwidth savings** to recover full lane privacy.
+
+### Public Information
+
+The following information is **intentionally public**:
+- Hot lane manifest (list of ~1000 contracts, their categories)
+- Lane CRS (cryptographic reference strings)
+- Lane entry counts
+
+The manifest is **not secret** - it's published to allow clients to route queries correctly.
 
 ## Hot Lane Contract Selection
 
