@@ -112,6 +112,24 @@ Every block:
 | Subset generation | Computational (PRF/AES) |
 | Non-collusion | DHT decentralization |
 
+### Hint Rotation (Multi-Query Privacy)
+
+Each target index is covered by ~128 different hints. To prevent query correlation:
+
+```
+Query 1 for index 42: use hint_7   → subset [3, 17, 42, 89, ...]
+Query 2 for index 42: use hint_193 → subset [42, 55, 61, 200, ...]
+Query 3 for index 42: use hint_847 → subset [1, 42, 99, 150, ...]
+```
+
+Server sees **different subsets** each time - no correlation possible.
+
+| Without Rotation | With Rotation |
+|------------------|---------------|
+| Same subset repeated | Random subset each query |
+| Pattern analysis possible | Queries look independent |
+| Single-query privacy only | **Multi-query privacy** |
+
 ## References
 
 - [Dummy Subsets PIR Paper](https://eprint.iacr.org/2023/1072) (CCS 2024)
