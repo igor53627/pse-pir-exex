@@ -8,6 +8,8 @@ license.workspace = true
 default = []
 # Enable dev-keys feature to allow saving secret keys (for testing/development only)
 dev-keys = []
+# Enable Reth ExEx integration for real-time lane updates
+exex = ["dep:reth", "dep:reth-exex", "dep:reth-node-ethereum", "dep:reth-node-api", "dep:reth-tracing", "dep:eyre", "dep:futures"]
 
 [[bin]]
 name = "lane-builder"
@@ -23,6 +25,16 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 hex = { workspace = true }
 tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+
+# Reth ExEx dependencies (optional, behind 'exex' feature)
+reth = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
+reth-exex = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
+reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
+eyre = { version = "0.6", optional = true }
+futures = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tempfile = "3.10"

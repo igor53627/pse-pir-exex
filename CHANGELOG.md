@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Reth ExEx integration for real-time lane updates (`exex` feature) (#17)
+- `ReloadClient` for triggering server database reloads via HTTP
+- `LaneUpdaterConfig` for configuring ExEx behavior
 - Lock-free database reads via `ArcSwap` for zero-contention query handling (#29)
 - `/admin/reload` endpoint for hot-reloading lane databases without restart
 - `DbSnapshot` immutable snapshot type for consistent query execution
