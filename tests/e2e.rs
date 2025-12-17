@@ -4,7 +4,8 @@
 
 use inspire_core::{HotLaneManifest, Lane, LaneRouter, TwoLaneConfig};
 use inspire_client::TwoLaneClient;
-use lane_builder::HotLaneBuilder;
+use lane_builder::{HotLaneBuilder, TwoLaneSetup, test_params};
+
 
 /// Test that lane routing works correctly
 #[test]
@@ -115,4 +116,108 @@ fn test_privacy_contracts_in_hot_lane() {
         .collect();
     
     assert!(!privacy_contracts.is_empty(), "Privacy contracts should be in hot lane");
+}
+
+/// Test full PIR setup and database creation
+#[test]
+fn test_pir_database_setup() {
+    let temp_dir = std::env::temp_dir().join("pir-setup-test");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    
+    let hot_data: Vec<u8> = (0..256 * 32).map(|i| (i % 256) as u8).collect();
+    let cold_data: Vec<u8> = (0..256 * 32).map(|i| ((i + 128) % 256) as u8).collect();
+    
+    let result = TwoLaneSetup::new(&temp_dir)
+        .hot_data(hot_data)
+        .cold_data(cold_data)
+        .entry_size(32)
+        .params(test_params())
+        .build()
+        .expect("Setup should succeed");
+    
+    assert_eq!(result.config.hot_entries, 256);
+    assert_eq!(result.config.cold_entries, 256);
+    assert_eq!(result.config.entry_size, 32);
+    
+    assert!(temp_dir.join("hot/crs.json").exists());
+    assert!(temp_dir.join("hot/encoded.json").exists());
+    assert!(temp_dir.join("cold/crs.json").exists());
+    assert!(temp_dir.join("cold/encoded.json").exists());
+    assert!(temp_dir.join("config.json").exists());
+    
+    let loaded_config = TwoLaneConfig::load(&temp_dir.join("config.json"))
+        .expect("Config should load");
+    assert_eq!(loaded_config.hot_entries, 256);
+    
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test actual PIR query/response cycle with encryption and decryption
+#[test]
+fn test_pir_query_response_cycle() {
+    use inspire_pir::{query, respond, extract};
+    use inspire_pir::math::GaussianSampler;
+    
+    let temp_dir = std::env::temp_dir().join("pir-query-test");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    
+    let params = test_params();
+    let entry_size = 32;
+    let num_entries = params.ring_dim;
+    
+    // Create test data with predictable pattern
+    let mut hot_data = vec![0u8; num_entries * entry_size];
+    for i in 0..num_entries {
+        let start = i * entry_size;
+        for j in 0..entry_size {
+            hot_data[start + j] = ((i + j) % 256) as u8;
+        }
+    }
+    
+    let cold_data = hot_data.clone();
+    
+    // Setup two-lane PIR databases
+    let result = TwoLaneSetup::new(&temp_dir)
+        .hot_data(hot_data.clone())
+        .cold_data(cold_data)
+        .entry_size(entry_size)
+        .params(params)
+        .build()
+        .expect("Setup should succeed");
+    
+    // Query for entry at index 42
+    let target_index = 42u64;
+    let mut sampler = GaussianSampler::new(result.hot_crs.params.sigma);
+    
+    // Client creates encrypted query
+    let (client_state, client_query) = query(
+        &result.hot_crs,
+        target_index,
+        &result.hot_db.config,
+        &result.secret_key,
+        &mut sampler,
+    ).expect("Query should succeed");
+    
+    // Server processes query homomorphically
+    let server_response = respond(
+        &result.hot_crs,
+        &result.hot_db,
+        &client_query,
+    ).expect("Respond should succeed");
+    
+    // Client decrypts response
+    let retrieved = extract(
+        &result.hot_crs,
+        &client_state,
+        &server_response,
+        entry_size,
+    ).expect("Extract should succeed");
+    
+    // Verify correctness
+    let expected_start = (target_index as usize) * entry_size;
+    let expected = &hot_data[expected_start..expected_start + entry_size];
+    
+    assert_eq!(&retrieved[..], expected, "Retrieved entry should match original");
+    
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }

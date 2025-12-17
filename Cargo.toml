@@ -17,6 +17,7 @@ inspire-core = { path = "crates/inspire-core" }
 inspire-server = { path = "crates/inspire-server" }
 inspire-client = { path = "crates/inspire-client" }
 lane-builder = { path = "crates/lane-builder" }
+inspire-pir = { workspace = true }
 
 [[test]]
 name = "e2e"
