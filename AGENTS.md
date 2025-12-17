@@ -6,16 +6,6 @@ Two-Lane InsPIRe PIR for private Ethereum state queries.
 
 **Key Insight**: 90% of wallet queries target top 1000 contracts. Split database into hot/cold lanes to reduce average query size from 500 KB to ~60 KB while maintaining full privacy.
 
-## Architecture Decision
-
-We evaluated Dummy Subsets PIR but rejected it due to:
-- Intersection attacks (server can correlate multiple queries)
-- Popularity attacks (server knows query distribution)
-- Correlation attacks (wallet queries are predictable)
-- Requires complex dummy query strategies
-
-InsPIRe is immune to all these because queries are encrypted.
-
 ## Project Structure
 
 ```
@@ -58,7 +48,15 @@ cargo build -p lane-builder --release
 | Entries | ~1M | ~2.7B |
 | DB Size | ~32 MB | ~87 GB |
 | Query Size | ~10 KB | ~500 KB |
-| √N | ~1,000 | ~52,000 |
+| sqrt(N) | ~1,000 | ~52,000 |
+
+## Comparison
+
+| Approach | 14 Wallet Queries | Privacy |
+|----------|-------------------|---------|
+| Clearnet RPC | 2 KB | None |
+| InsPIRe | 7 MB | Full |
+| **Two-Lane InsPIRe** | **176 KB** | **Full** |
 
 ## Integration Points
 
@@ -82,5 +80,4 @@ See GitHub issues for current work items.
 
 - Hot vs cold lane choice leaks popularity tier (acceptable)
 - Query content fully encrypted (RLWE)
-- No intersection/correlation attacks possible
-- For max privacy: query both lanes with dummy
+- For max privacy: query both lanes (one real, one decoy)

@@ -4,13 +4,13 @@ Two-Lane InsPIRe PIR for private Ethereum state queries.
 
 ## Problem
 
-Wallets need to query Ethereum state (balances, positions) privately. Existing approaches have tradeoffs:
+Wallets need to query Ethereum state (balances, positions) privately. Current approaches:
 
-| Approach | Query Size | Privacy | Issues |
-|----------|-----------|---------|--------|
-| Direct RPC | 0.1 KB | None | Leaks all queries |
-| Single-lane InsPIRe | 500 KB | Full | High bandwidth |
-| Dummy Subsets | 2 KB | Weak | Intersection attacks, popularity attacks |
+| Approach | Query Size | Privacy |
+|----------|-----------|---------|
+| Clearnet RPC | 0.1 KB | None |
+| InsPIRe | 500 KB | Full |
+| **Two-Lane InsPIRe** | **~60 KB avg** | **Full** |
 
 ## Solution: Two-Lane InsPIRe
 
@@ -22,18 +22,6 @@ COLD LANE: Everything else    -> 2.7B entries -> 500 KB queries
 ```
 
 Since 90% of queries target popular contracts, average bandwidth drops from 500 KB to ~60 KB.
-
-## Why Not Dummy Subsets?
-
-We initially explored Dummy Subsets PIR but found critical issues:
-
-| Attack | Description | Mitigation Complexity |
-|--------|-------------|----------------------|
-| **Intersection** | Server intersects query subsets, reveals target | Requires 10x dummy queries |
-| **Popularity** | Server knows 90% queries are popular contracts | Requires popularity-weighted dummies |
-| **Correlation** | Wallet queries are correlated (USDC + WETH) | Requires correlated dummy bundles |
-
-InsPIRe is immune to all these attacks because queries are encrypted.
 
 ## Architecture
 
@@ -62,9 +50,8 @@ COLD LANE (~87 GB, 2.7B entries)
 
 | Approach | 14 Wallet Queries | Privacy |
 |----------|-------------------|---------|
-| Direct RPC | 2 KB | **None** |
-| Single InsPIRe | 7 MB | Full |
-| Dummy Subsets + 10x dummies | 308 KB | Partial |
+| Clearnet RPC | 2 KB | **None** |
+| InsPIRe | 7 MB | Full |
 | **Two-Lane InsPIRe** | **176 KB** | **Full** |
 
 ## Privacy & Threat Model
@@ -86,12 +73,9 @@ COLD LANE (~87 GB, 2.7B entries)
 |----------|-----------|-------|
 | Query content | Encrypted (RLWE) | Computationally secure |
 | Target index within lane | Computationally hidden | PIR property |
-| Subset intersection attacks | **Immune** | No dummy-subset intersections |
 | Within-lane popularity signal | **Hidden** | Server cannot distinguish which contract/slot |
 | **Which lane queried** | **Visible to server** | Deliberate trade-off |
 | Cross-query metadata | **Not addressed** | Lane, timing, IP can be correlated |
-
-InsPIRe is immune to **dummy-subset intersection and popularity attacks** because the server only sees encrypted PIR queries, not explicit subsets. It can still observe metadata (lane, timing, IP).
 
 ### What the Server Learns
 
@@ -105,7 +89,7 @@ The two-lane architecture leaks **which lane** is being accessed:
 | Target index within lane | NO - PIR property |
 | Query timing | YES - observable |
 
-**Example**: If you query the hot lane, the server learns your target is among the ~1000 popular contracts, but not which one or which slot (~1-in-1M slot-level anonymity, assuming ~1M entries in the hot lane).
+**Example**: If you query the hot lane, the server learns your target is among the ~1000 popular contracts, but not which one or which slot (~1-in-1M slot-level anonymity).
 
 ### Lane Privacy Trade-off
 
@@ -121,20 +105,13 @@ This is acceptable because:
 2. The target contract and slot remain hidden (~1-in-1M anonymity set)
 3. Multi-query correlation **at the index level** is still impossible (ciphertexts are semantically secure)
 
-Note: Over many queries, the server can learn a user's hot/cold query pattern unless network-level anonymity is used.
-
 ### Maximum Privacy Mode
 
-For applications requiring maximum privacy **with respect to lane selection**, query **both lanes every time**:
+For applications requiring maximum privacy, query **both lanes every time**:
 - One lane receives the real query
-- Other lane receives a dummy query (random index)
+- Other lane receives a decoy query (random index)
 
-This hides which lane contains your actual target, at the cost of:
-- **Per-query cost**: ~10KB (hot) + ~500KB (cold) ≈ ~510KB
-- **Hot-lane-heavy workloads**: Similar to single-lane InsPIRe bandwidth (~500KB/query)
-- **Cold-lane queries**: Only ~10KB overhead from hot-lane dummy
-
-In other words, **maximum-privacy mode trades away the 90% bandwidth savings** to recover full lane privacy.
+This hides which lane contains your actual target, at the cost of ~510 KB per query.
 
 ### Public Information
 
@@ -142,8 +119,6 @@ The following information is **intentionally public**:
 - Hot lane manifest (list of ~1000 contracts, their categories)
 - Lane CRS (cryptographic reference strings)
 - Lane entry counts
-
-The manifest is **not secret** - it's published to allow clients to route queries correctly.
 
 ## Hot Lane Contract Selection
 
@@ -158,7 +133,6 @@ Updated weekly based on on-chain analytics:
 | Bridges | Across, Stargate, Hop, Synapse |
 | L2 | Arbitrum, Optimism, Base bridges |
 | Restaking | EigenLayer, Renzo, EtherFi |
-| Privacy | Tornado Cash, Railgun, Privacy Pools, YOLO |
 
 ## Crates
 
@@ -189,7 +163,6 @@ This project extends [inspire-rs](../inspire/) with:
 - [inspire-rs](../inspire/) - Base InsPIRe implementation
 - [InsPIRe Paper](https://eprint.iacr.org/2024/XXX)
 - [Ethereum State Analysis](../plinko-extractor/findings.md)
-- [PIR Comparison](../inspire/docs/PIR_COMPARISON.md)
 
 ## License
 
