@@ -38,23 +38,16 @@ InsPIRe is immune to all these attacks because queries are encrypted.
 ## Architecture
 
 ```
-+-------------------------------------------------------------+
-|                     TWO-LANE INSPIRE                         |
-+-------------------------------------------------------------+
-|                                                              |
-|   HOT LANE (~32 MB database)                                 |
-|   - Top 1,000 contracts by query frequency                   |
-|   - USDC, WETH, USDT, DAI, Uniswap, Aave, ...               |
-|   - ~1,000 storage slots per contract                        |
-|   - Query size: ~10 KB                                       |
-|   - O(sqrt(1M)) = O(1000) communication                      |
-|                                                              |
-|   COLD LANE (~87 GB database)                                |
-|   - All other contracts and accounts                         |
-|   - Query size: ~500 KB                                      |
-|   - O(sqrt(2.7B)) = O(52000) communication                   |
-|                                                              |
-+-------------------------------------------------------------+
+HOT LANE  (~32 MB, 1M entries)
+  - Top 1,000 contracts by query frequency
+  - USDC, WETH, USDT, DAI, Uniswap, Aave, ...
+  - Query size: ~10 KB
+  - O(sqrt(1M)) = O(1000) communication
+
+COLD LANE (~87 GB, 2.7B entries)
+  - All other contracts and accounts
+  - Query size: ~500 KB
+  - O(sqrt(2.7B)) = O(52000) communication
 ```
 
 ## Performance
