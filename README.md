@@ -17,8 +17,8 @@ Wallets need to query Ethereum state (balances, positions) privately. Existing a
 Split the database into lanes by popularity:
 
 ```
-HOT LANE:  Top 1,000 contracts → 1M entries  → 10 KB queries
-COLD LANE: Everything else    → 2.7B entries → 500 KB queries
+HOT LANE:  Top 1,000 contracts -> 1M entries  -> 10 KB queries
+COLD LANE: Everything else    -> 2.7B entries -> 500 KB queries
 ```
 
 Since 90% of queries target popular contracts, average bandwidth drops from 500 KB to ~60 KB.
@@ -29,7 +29,7 @@ We initially explored Dummy Subsets PIR but found critical issues:
 
 | Attack | Description | Mitigation Complexity |
 |--------|-------------|----------------------|
-| **Intersection** | Server intersects query subsets → reveals target | Requires 10× dummy queries |
+| **Intersection** | Server intersects query subsets, reveals target | Requires 10x dummy queries |
 | **Popularity** | Server knows 90% queries are popular contracts | Requires popularity-weighted dummies |
 | **Correlation** | Wallet queries are correlated (USDC + WETH) | Requires correlated dummy bundles |
 
@@ -38,23 +38,23 @@ InsPIRe is immune to all these attacks because queries are encrypted.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     TWO-LANE INSPIRE                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   HOT LANE (~32 MB database)                                │
-│   ├── Top 1,000 contracts by query frequency                │
-│   ├── USDC, WETH, USDT, DAI, Uniswap, Aave, ...            │
-│   ├── ~1,000 storage slots per contract                     │
-│   ├── Query size: ~10 KB                                    │
-│   └── O(√1M) = O(1000) communication                        │
-│                                                              │
-│   COLD LANE (~87 GB database)                               │
-│   ├── All other contracts and accounts                      │
-│   ├── Query size: ~500 KB                                   │
-│   └── O(√2.7B) = O(52000) communication                     │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                     TWO-LANE INSPIRE                         |
++-------------------------------------------------------------+
+|                                                              |
+|   HOT LANE (~32 MB database)                                 |
+|   - Top 1,000 contracts by query frequency                   |
+|   - USDC, WETH, USDT, DAI, Uniswap, Aave, ...               |
+|   - ~1,000 storage slots per contract                        |
+|   - Query size: ~10 KB                                       |
+|   - O(sqrt(1M)) = O(1000) communication                      |
+|                                                              |
+|   COLD LANE (~87 GB database)                                |
+|   - All other contracts and accounts                         |
+|   - Query size: ~500 KB                                      |
+|   - O(sqrt(2.7B)) = O(52000) communication                   |
+|                                                              |
++-------------------------------------------------------------+
 ```
 
 ## Performance
