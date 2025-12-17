@@ -134,12 +134,27 @@ Updated weekly based on on-chain analytics:
 | L2 | Arbitrum, Optimism, Base bridges |
 | Restaking | EigenLayer, Renzo, EtherFi |
 
+## Live Database Updates
+
+The server supports hot-reloading databases without restart:
+
+- **Lock-free reads** via ArcSwap - zero query blocking during updates
+- **Mmap mode** (default) - O(1) swap time (~1-5ms) regardless of database size
+- **Atomic swaps** - in-flight queries continue on old snapshot until complete
+
+```bash
+# Trigger reload
+curl -X POST http://localhost:3000/admin/reload
+```
+
+See [docs/LIVE_UPDATES.md](docs/LIVE_UPDATES.md) for details.
+
 ## Crates
 
 | Crate | Description |
 |-------|-------------|
 | `inspire-core` | Shared types (Lane, Config, Manifest) |
-| `inspire-server` | Two-lane PIR server |
+| `inspire-server` | Two-lane PIR server with live updates |
 | `inspire-client` | Client with lane routing |
 | `lane-builder` | Hot lane extractor (Reth ExEx) |
 
