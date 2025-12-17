@@ -10,6 +10,7 @@ path = "src/bin/main.rs"
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }
+inspire-pir = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

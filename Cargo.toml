@@ -30,7 +30,7 @@ repository = "https://github.com/pse-team/pse-pir-exex"
 
 [workspace.dependencies]
 # Use inspire-rs for PIR primitives
-inspire = { path = "../inspire" }
+inspire-pir = { path = "/Users/user/pse/inspire" }
 
 # Crypto
 rand = "0.8"

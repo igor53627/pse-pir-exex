@@ -9,6 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use inspire_core::Lane;
+use inspire_pir::ClientQuery;
 
 use crate::error::{Result, ServerError};
 use crate::state::{LaneStats, SharedState};
@@ -69,7 +70,7 @@ async fn get_crs(
     let lane_data = state.get_lane(lane)?;
 
     Ok(Json(CrsResponse {
-        crs: lane_data.crs_json.clone(),
+        crs: lane_data.crs_json()?,
         lane,
         entry_count: lane_data.entry_count,
     }))
@@ -82,12 +83,20 @@ async fn query(
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<QueryResponse>> {
     let lane = parse_lane(&lane)?;
+    
+    let client_query: ClientQuery = serde_json::from_str(&req.query)
+        .map_err(|e| ServerError::InvalidQuery(format!("Invalid query JSON: {}", e)))?;
+    
     let state = state.read().await;
-    let _lane_data = state.get_lane(lane)?;
+    let response = state.process_query(lane, &client_query)?;
+    
+    let response_json = serde_json::to_string(&response)
+        .map_err(|e| ServerError::Internal(format!("Failed to serialize response: {}", e)))?;
 
-    let response = process_pir_query(&req.query)?;
-
-    Ok(Json(QueryResponse { response, lane }))
+    Ok(Json(QueryResponse { 
+        response: response_json, 
+        lane 
+    }))
 }
 
 /// Parse lane from URL path
@@ -97,15 +106,6 @@ fn parse_lane(s: &str) -> Result<Lane> {
         "cold" => Ok(Lane::Cold),
         _ => Err(ServerError::InvalidQuery(format!("Invalid lane: {}", s))),
     }
-}
-
-/// Process PIR query using inspire-rs
-///
-/// TODO: Integrate with actual inspire-rs library
-fn process_pir_query(_query_json: &str) -> Result<String> {
-    Err(ServerError::Internal(
-        "PIR query processing not yet implemented".to_string(),
-    ))
 }
 
 /// Create the router with all routes

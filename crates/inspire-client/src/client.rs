@@ -4,6 +4,13 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use inspire_core::{Address, Lane, LaneRouter, StorageKey, StorageValue};
+use inspire_pir::{
+    ServerCrs, ClientQuery, ClientState, ServerResponse,
+    query as pir_query, extract,
+    InspireParams,
+};
+use inspire_pir::math::GaussianSampler;
+use inspire_pir::rlwe::RlweSecretKey;
 
 use crate::error::{ClientError, Result};
 
@@ -28,13 +35,20 @@ pub struct QueryResponse {
     pub lane: Lane,
 }
 
+/// Lane-specific client state
+struct LaneState {
+    crs: ServerCrs,
+    secret_key: RlweSecretKey,
+    entry_count: u64,
+}
+
 /// Two-lane PIR client that routes queries to the appropriate lane
 pub struct TwoLaneClient {
     router: LaneRouter,
     http: Client,
     server_url: String,
-    hot_crs: Option<String>,
-    cold_crs: Option<String>,
+    hot_state: Option<LaneState>,
+    cold_state: Option<LaneState>,
 }
 
 impl TwoLaneClient {
@@ -44,22 +58,34 @@ impl TwoLaneClient {
             router,
             http: Client::new(),
             server_url: server_url.trim_end_matches('/').to_string(),
-            hot_crs: None,
-            cold_crs: None,
+            hot_state: None,
+            cold_state: None,
         }
     }
 
-    /// Initialize the client by fetching CRS from server
+    /// Initialize the client by fetching CRS from server and generating keys
     pub async fn init(&mut self) -> Result<()> {
-        let hot_crs = self.fetch_crs(Lane::Hot).await?;
-        self.hot_crs = Some(hot_crs.crs);
+        let hot_crs_resp = self.fetch_crs(Lane::Hot).await?;
+        let hot_crs: ServerCrs = serde_json::from_str(&hot_crs_resp.crs)?;
+        let hot_sk = generate_secret_key(&hot_crs.params);
+        self.hot_state = Some(LaneState {
+            crs: hot_crs,
+            secret_key: hot_sk,
+            entry_count: hot_crs_resp.entry_count,
+        });
         
-        let cold_crs = self.fetch_crs(Lane::Cold).await?;
-        self.cold_crs = Some(cold_crs.crs);
+        let cold_crs_resp = self.fetch_crs(Lane::Cold).await?;
+        let cold_crs: ServerCrs = serde_json::from_str(&cold_crs_resp.crs)?;
+        let cold_sk = generate_secret_key(&cold_crs.params);
+        self.cold_state = Some(LaneState {
+            crs: cold_crs,
+            secret_key: cold_sk,
+            entry_count: cold_crs_resp.entry_count,
+        });
         
         tracing::info!(
-            hot_entries = hot_crs.entry_count,
-            cold_entries = cold_crs.entry_count,
+            hot_entries = self.hot_state.as_ref().map(|s| s.entry_count).unwrap_or(0),
+            cold_entries = self.cold_state.as_ref().map(|s| s.entry_count).unwrap_or(0),
             "Client initialized with both lanes"
         );
         
@@ -82,7 +108,7 @@ impl TwoLaneClient {
         Ok(crs_resp)
     }
 
-    /// Query a storage slot
+    /// Query a storage slot using PIR
     pub async fn query(&self, contract: Address, slot: StorageKey) -> Result<StorageValue> {
         let lane = self.router.route(&contract);
         
@@ -92,34 +118,58 @@ impl TwoLaneClient {
             "Routing query"
         );
 
-        let _query_json = self.build_query(lane, &contract, &slot)?;
+        let lane_state = self.get_lane_state(lane)?;
         
-        todo!("Implement actual PIR query - requires inspire-rs integration")
+        let index = self.compute_index(&contract, &slot, lane)?;
+        
+        let (client_state, client_query) = self.build_pir_query(lane_state, index)?;
+        
+        let response = self.send_query(lane, &client_query).await?;
+        
+        let server_response: ServerResponse = serde_json::from_str(&response.response)?;
+        
+        let entry = extract(
+            &lane_state.crs,
+            &client_state,
+            &server_response,
+            32,
+        ).map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+        
+        let mut result = [0u8; 32];
+        result.copy_from_slice(&entry[..32]);
+        Ok(result)
     }
 
-    /// Build a PIR query for the given target
-    fn build_query(&self, lane: Lane, _contract: &Address, _slot: &StorageKey) -> Result<String> {
-        let _crs = match lane {
-            Lane::Hot => self.hot_crs.as_ref().ok_or_else(|| {
-                ClientError::LaneNotAvailable("Hot lane CRS not loaded".to_string())
-            })?,
-            Lane::Cold => self.cold_crs.as_ref().ok_or_else(|| {
-                ClientError::LaneNotAvailable("Cold lane CRS not loaded".to_string())
-            })?,
+    /// Build a PIR query for the given index
+    fn build_pir_query(&self, lane_state: &LaneState, index: u64) -> Result<(ClientState, ClientQuery)> {
+        let mut sampler = GaussianSampler::new(lane_state.crs.params.sigma);
+        
+        let shard_config = inspire_pir::params::ShardConfig {
+            shard_size_bytes: (lane_state.crs.params.ring_dim as u64) * 32,
+            entry_size_bytes: 32,
+            total_entries: lane_state.entry_count,
         };
-
-        todo!("Build PIR query using inspire-rs")
+        
+        let (state, query) = pir_query(
+            &lane_state.crs,
+            index,
+            &shard_config,
+            &lane_state.secret_key,
+            &mut sampler,
+        ).map_err(|e| ClientError::InvalidResponse(format!("Failed to build query: {}", e)))?;
+        
+        Ok((state, query))
     }
 
     /// Send a query to the server
-    async fn send_query(&self, lane: Lane, query_json: &str) -> Result<QueryResponse> {
+    async fn send_query(&self, lane: Lane, query: &ClientQuery) -> Result<QueryResponse> {
         let url = format!("{}/query/{}", self.server_url, lane);
+        
+        let query_json = serde_json::to_string(query)?;
         
         let resp = self.http
             .post(&url)
-            .json(&QueryRequest {
-                query: query_json.to_string(),
-            })
+            .json(&QueryRequest { query: query_json })
             .send()
             .await?;
 
@@ -132,6 +182,28 @@ impl TwoLaneClient {
 
         let query_resp: QueryResponse = resp.json().await?;
         Ok(query_resp)
+    }
+
+    /// Get lane state
+    fn get_lane_state(&self, lane: Lane) -> Result<&LaneState> {
+        match lane {
+            Lane::Hot => self.hot_state.as_ref().ok_or_else(|| {
+                ClientError::LaneNotAvailable("Hot lane not initialized".to_string())
+            }),
+            Lane::Cold => self.cold_state.as_ref().ok_or_else(|| {
+                ClientError::LaneNotAvailable("Cold lane not initialized".to_string())
+            }),
+        }
+    }
+
+    /// Compute the database index for a contract/slot pair
+    fn compute_index(&self, contract: &Address, _slot: &StorageKey, lane: Lane) -> Result<u64> {
+        if lane == Lane::Hot {
+            if let Some(idx) = self.router.get_hot_index(contract, _slot) {
+                return Ok(idx);
+            }
+        }
+        Ok(0)
     }
 
     /// Get which lane a contract would be routed to
@@ -148,6 +220,12 @@ impl TwoLaneClient {
     pub fn hot_contract_count(&self) -> usize {
         self.router.hot_contract_count()
     }
+}
+
+/// Generate a secret key for PIR
+fn generate_secret_key(params: &InspireParams) -> RlweSecretKey {
+    let mut sampler = GaussianSampler::new(params.sigma);
+    RlweSecretKey::generate(params, &mut sampler)
 }
 
 /// Builder for TwoLaneClient

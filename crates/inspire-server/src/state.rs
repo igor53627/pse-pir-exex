@@ -3,34 +3,50 @@
 use std::sync::Arc;
 
 use inspire_core::{HotLaneManifest, Lane, LaneRouter, TwoLaneConfig};
+use inspire_pir::{ServerCrs, EncodedDatabase, ClientQuery, ServerResponse, respond};
 
 use crate::error::{Result, ServerError};
 
 /// Lane-specific PIR data (CRS + encoded database)
 pub struct LaneData {
-    /// Serialized CRS (JSON)
-    pub crs_json: String,
-    /// Serialized encoded database (JSON)
-    pub db_json: String,
+    /// Server CRS for this lane
+    pub crs: ServerCrs,
+    /// Encoded database for this lane
+    pub encoded_db: EncodedDatabase,
     /// Number of entries in this lane
     pub entry_count: u64,
 }
 
 impl LaneData {
+    /// Load lane data from disk
     pub fn load(crs_path: &std::path::Path, db_path: &std::path::Path) -> Result<Self> {
         let crs_json = std::fs::read_to_string(crs_path)?;
+        let crs: ServerCrs = serde_json::from_str(&crs_json)
+            .map_err(|e| ServerError::Internal(format!("Failed to parse CRS: {}", e)))?;
+        
         let db_json = std::fs::read_to_string(db_path)?;
+        let encoded_db: EncodedDatabase = serde_json::from_str(&db_json)
+            .map_err(|e| ServerError::Internal(format!("Failed to parse database: {}", e)))?;
+
+        let entry_count = encoded_db.config.total_entries;
         
         Ok(Self {
-            crs_json,
-            db_json,
-            entry_count: 0,
+            crs,
+            encoded_db,
+            entry_count,
         })
     }
 
-    pub fn with_entry_count(mut self, count: u64) -> Self {
-        self.entry_count = count;
-        self
+    /// Process a PIR query and return the response
+    pub fn process_query(&self, query: &ClientQuery) -> Result<ServerResponse> {
+        respond(&self.crs, &self.encoded_db, query)
+            .map_err(|e| ServerError::PirError(e.to_string()))
+    }
+
+    /// Get CRS as JSON string
+    pub fn crs_json(&self) -> Result<String> {
+        serde_json::to_string(&self.crs)
+            .map_err(|e| ServerError::Json(e))
     }
 }
 
@@ -70,8 +86,13 @@ impl ServerState {
             )));
         }
 
-        let lane_data = LaneData::load(crs_path, db_path)?
-            .with_entry_count(self.config.hot_entries);
+        let lane_data = LaneData::load(crs_path, db_path)?;
+        
+        tracing::info!(
+            entries = lane_data.entry_count,
+            "Hot lane loaded"
+        );
+        
         self.hot_lane = Some(lane_data);
 
         if manifest_path.exists() {
@@ -79,11 +100,6 @@ impl ServerState {
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
             self.router = Some(LaneRouter::new(manifest));
         }
-
-        tracing::info!(
-            entries = self.config.hot_entries,
-            "Hot lane loaded"
-        );
 
         Ok(())
     }
@@ -100,14 +116,14 @@ impl ServerState {
             )));
         }
 
-        let lane_data = LaneData::load(crs_path, db_path)?
-            .with_entry_count(self.config.cold_entries);
-        self.cold_lane = Some(lane_data);
-
+        let lane_data = LaneData::load(crs_path, db_path)?;
+        
         tracing::info!(
-            entries = self.config.cold_entries,
+            entries = lane_data.entry_count,
             "Cold lane loaded"
         );
+        
+        self.cold_lane = Some(lane_data);
 
         Ok(())
     }
@@ -124,6 +140,12 @@ impl ServerState {
         }
     }
 
+    /// Process a PIR query for a specific lane
+    pub fn process_query(&self, lane: Lane, query: &ClientQuery) -> Result<ServerResponse> {
+        let lane_data = self.get_lane(lane)?;
+        lane_data.process_query(query)
+    }
+
     /// Check if both lanes are loaded
     pub fn is_ready(&self) -> bool {
         self.hot_lane.is_some() && self.cold_lane.is_some()
@@ -134,8 +156,8 @@ impl ServerState {
         LaneStats {
             hot_loaded: self.hot_lane.is_some(),
             cold_loaded: self.cold_lane.is_some(),
-            hot_entries: self.config.hot_entries,
-            cold_entries: self.config.cold_entries,
+            hot_entries: self.hot_lane.as_ref().map(|l| l.entry_count).unwrap_or(0),
+            cold_entries: self.cold_lane.as_ref().map(|l| l.entry_count).unwrap_or(0),
             hot_contracts: self.router.as_ref().map(|r| r.hot_contract_count()).unwrap_or(0),
         }
     }
