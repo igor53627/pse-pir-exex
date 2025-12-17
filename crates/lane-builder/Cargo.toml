@@ -9,11 +9,16 @@ default = []
 # Enable dev-keys feature to allow saving secret keys (for testing/development only)
 dev-keys = []
 # Enable Reth ExEx integration for real-time lane updates
-exex = ["dep:reth", "dep:reth-exex", "dep:reth-node-ethereum", "dep:reth-node-api", "dep:reth-tracing", "dep:eyre", "dep:futures"]
+exex = ["dep:reth-ethereum", "dep:reth-tracing", "dep:eyre", "dep:futures", "dep:clap", "dep:metrics"]
 
 [[bin]]
 name = "lane-builder"
 path = "src/bin/main.rs"
+
+[[bin]]
+name = "lane-exex"
+path = "src/bin/exex.rs"
+required-features = ["exex"]
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }
@@ -28,13 +33,12 @@ tracing-subscriber = { workspace = true }
 reqwest = { workspace = true }
 
 # Reth ExEx dependencies (optional, behind 'exex' feature)
-reth = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
-reth-exex = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
-reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
-reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
-reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v1.6.0", optional = true }
+reth-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.9.3", optional = true, features = ["exex", "node-api", "node", "cli"] }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v1.9.3", optional = true }
 eyre = { version = "0.6", optional = true }
 futures = { version = "0.3", optional = true }
+clap = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.10"

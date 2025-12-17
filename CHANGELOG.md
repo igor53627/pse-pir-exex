@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Reth ExEx integration for real-time lane updates (`exex` feature) (#17)
+  - `lane-exex` binary for running ExEx as a standalone Reth execution extension
+  - Subscribes to ChainCommitted/Reverted/Reorged notifications from Reth
+  - Triggers `/admin/reload` on PIR server when chain state changes
+  - Debouncing support to avoid rapid reloads (configurable via `--reload-debounce-secs`)
+  - Upgraded to Reth v1.9.3 API with `reth-ethereum` consolidated crate
+- ExEx metrics for monitoring reload performance:
+  - `lane_updater_reload_total`: Total number of reload requests
+  - `lane_updater_reload_duration_ms`: Reload latency histogram
+  - `lane_updater_reload_errors_total`: Total reload errors
+  - `lane_updater_blocks_processed`: Total blocks processed
+  - `lane_updater_reorgs_total`: Total chain reorgs detected
+  - `lane_updater_debounce_skips_total`: Skipped reloads due to debouncing
+- Integration tests for `ReloadClient` with mock HTTP server
 - `ReloadClient` for triggering server database reloads via HTTP
 - `LaneUpdaterConfig` for configuring ExEx behavior
 - Lock-free database reads via `ArcSwap` for zero-contention query handling (#29)
