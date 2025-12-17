@@ -1,80 +1,86 @@
 # AGENTS.md - pse-pir-exex
 
-## Build Commands
+## Project Overview
 
-```bash
-# Build all crates
-cargo build --release
+Two-Lane InsPIRe PIR for private Ethereum state queries.
 
-# Build specific crate
-cargo build -p pir-core --release
-cargo build -p pir-seeder --release
-cargo build -p pir-server-b --release
-cargo build -p pir-client --release
+**Key Insight**: 90% of wallet queries target top 1000 contracts. Split database into hot/cold lanes to reduce average query size from 500 KB to ~60 KB while maintaining full privacy.
 
-# Run tests
-cargo test --workspace
+## Architecture Decision
 
-# Run benchmarks
-cargo bench -p pir-core
-```
+We evaluated Dummy Subsets PIR but rejected it due to:
+- Intersection attacks (server can correlate multiple queries)
+- Popularity attacks (server knows query distribution)
+- Correlation attacks (wallet queries are predictable)
+- Requires complex dummy query strategies
+
+InsPIRe is immune to all these because queries are encrypted.
 
 ## Project Structure
 
 ```
 pse-pir-exex/
 ├── crates/
-│   ├── pir-core/        # Shared primitives
-│   ├── pir-seeder/      # Hint generator (ExEx)
-│   ├── pir-server-b/    # Query server
-│   └── pir-client/      # Client library
+│   ├── inspire-core/     # Shared types (Lane, Config)
+│   ├── inspire-server/   # Two-lane PIR server
+│   ├── inspire-client/   # Client with lane routing
+│   └── lane-builder/     # Hot lane extractor (ExEx)
+├── README.md
+├── AGENTS.md
 └── docs/
+    ├── PROTOCOL.md       # Protocol specification
+    └── HOT_CONTRACTS.md  # Hot lane contract list
 ```
 
-## Key Files
+## Dependencies
 
-| File | Purpose |
-|------|---------|
-| `pir-core/src/prf.rs` | PRF (AES-based subset generation) |
-| `pir-core/src/hint.rs` | XOR hint computation |
-| `pir-core/src/subset.rs` | Subset and query compression |
-| `pir-seeder/src/generator.rs` | Parallel hint generation |
-| `pir-server-b/src/responder.rs` | Query processing |
-| `pir-client/src/query.rs` | Client query logic |
+- `inspire-rs` (../inspire/) - Base InsPIRe PIR implementation
+- `reth` - For ExEx integration (lane building)
 
-## Testing
+## Build Commands
 
 ```bash
-# Unit tests
-cargo test -p pir-core
+# Build all crates
+cargo build --release
 
-# Integration tests (requires database)
-cargo test -p pir-server-b -- --ignored
+# Run tests
+cargo test --workspace
 
-# End-to-end test
-./scripts/e2e-test.sh
+# Build lane extractor
+cargo build -p lane-builder --release
 ```
+
+## Key Parameters
+
+| Parameter | Hot Lane | Cold Lane |
+|-----------|----------|-----------|
+| Contracts | ~1,000 | ~2.7M |
+| Entries | ~1M | ~2.7B |
+| DB Size | ~32 MB | ~87 GB |
+| Query Size | ~10 KB | ~500 KB |
+| √N | ~1,000 | ~52,000 |
+
+## Integration Points
+
+1. **inspire-rs**: Use existing PIR primitives
+2. **plinko-extractor**: Use for hot lane contract identification
+3. **Reth ExEx**: Real-time hot lane updates
 
 ## Related Projects
 
-- `~/pse/inspire` - InsPIRe lattice-based PIR
-- `~/pse/plinko-extractor` - Ethereum state extractor
-- `~/pse/pse-client` - PSE client (base for extensions)
+| Project | Path | Purpose |
+|---------|------|---------|
+| inspire-rs | ~/pse/inspire | Base PIR implementation |
+| plinko-extractor | ~/pse/plinko-extractor | State extraction |
+| pse-client | ~/pse/pse-client | Base client |
 
-## Ethereum State Parameters
+## Open Tasks
 
-| Parameter | Value |
-|-----------|-------|
-| Total entries (N) | 2.73 billion |
-| Subset size (sqrt(N)) | 52,250 |
-| Number of hints | 6.7 million |
-| Hint size | 32 bytes |
-| Total hint storage | 214 MB |
-| Database size | 87 GB |
+See GitHub issues for current work items.
 
-## Development Notes
+## Privacy Notes
 
-1. PRF uses AES-128 in counter mode
-2. Hints are XOR parities (information-theoretic)
-3. Query compression: send seed instead of indices (100x smaller)
-4. Updates use XOR property: new = old XOR diff
+- Hot vs cold lane choice leaks popularity tier (acceptable)
+- Query content fully encrypted (RLWE)
+- No intersection/correlation attacks possible
+- For max privacy: query both lanes with dummy

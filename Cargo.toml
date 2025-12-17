@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/pir-core",
-    "crates/pir-seeder",
-    "crates/pir-server-b",
-    "crates/pir-client",
+    "crates/inspire-core",
+    "crates/inspire-server",
+    "crates/inspire-client",
+    "crates/lane-builder",
 ]
 
 [workspace.package]
@@ -14,10 +14,11 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/pse-team/pse-pir-exex"
 
 [workspace.dependencies]
+# Use inspire-rs for PIR primitives
+inspire = { path = "../inspire" }
+
 # Crypto
-aes = "0.8"
 rand = "0.8"
-sha2 = "0.10"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -34,24 +35,17 @@ reqwest = { version = "0.12", features = ["json"] }
 # Storage
 memmap2 = "0.9"
 
-# IPFS/DHT
-ipfs-api-backend-hyper = "0.6"
-
-# Reth (for ExEx)
+# Reth (for lane building)
 reth = { git = "https://github.com/paradigmxyz/reth" }
 reth-exex = { git = "https://github.com/paradigmxyz/reth" }
-reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth" }
 
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
 
-# Encoding
-hex = "0.4"
-
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
-# Internal crates
-pir-core = { path = "crates/pir-core" }
+# Encoding
+hex = "0.4"
