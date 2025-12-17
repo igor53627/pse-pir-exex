@@ -157,6 +157,7 @@ fn test_pir_database_setup() {
 fn test_pir_query_response_cycle() {
     use inspire_pir::{query, respond, extract};
     use inspire_pir::math::GaussianSampler;
+    use inspire_pir::rlwe::RlweSecretKey;
     
     let temp_dir = std::env::temp_dir().join("pir-query-test");
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -189,12 +190,15 @@ fn test_pir_query_response_cycle() {
     let target_index = 42u64;
     let mut sampler = GaussianSampler::new(result.hot_crs.params.sigma);
     
+    // Client generates their own secret key (as they would in production)
+    let client_secret_key = RlweSecretKey::generate(&result.hot_crs.params, &mut sampler);
+    
     // Client creates encrypted query
     let (client_state, client_query) = query(
         &result.hot_crs,
         target_index,
         &result.hot_db.config,
-        &result.secret_key,
+        &client_secret_key,
         &mut sampler,
     ).expect("Query should succeed");
     

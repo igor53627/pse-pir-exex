@@ -23,13 +23,18 @@ pub struct TwoLaneSetupResult {
     pub cold_crs: ServerCrs,
     /// Cold lane encoded database
     pub cold_db: EncodedDatabase,
-    /// Secret key (shared between lanes for simplicity)
-    pub secret_key: RlweSecretKey,
     /// Configuration
     pub config: TwoLaneConfig,
 }
 
 /// Builder for two-lane PIR setup
+///
+/// # Security Note
+///
+/// This builder creates server-side PIR data only (CRS and encoded database).
+/// Secret keys are NOT saved to disk - clients should generate their own keys.
+/// For testing/development, use `emit_secret_key()` to optionally save a key
+/// to a separate (non-server) location.
 pub struct TwoLaneSetup {
     output_dir: std::path::PathBuf,
     hot_data: Vec<u8>,
@@ -37,6 +42,8 @@ pub struct TwoLaneSetup {
     entry_size: usize,
     manifest: Option<HotLaneManifest>,
     params: InspireParams,
+    #[cfg(any(test, feature = "dev-keys"))]
+    secret_key_path: Option<std::path::PathBuf>,
 }
 
 impl TwoLaneSetup {
@@ -49,6 +56,8 @@ impl TwoLaneSetup {
             entry_size: 32,
             manifest: None,
             params: default_params(),
+            #[cfg(any(test, feature = "dev-keys"))]
+            secret_key_path: None,
         }
     }
 
@@ -82,6 +91,38 @@ impl TwoLaneSetup {
         self
     }
 
+    /// Emit secret key to a specified path (for testing/development only)
+    ///
+    /// # Security Warning
+    ///
+    /// This should only be used for testing or air-gapped client setup.
+    /// In production, clients should generate their own secret keys.
+    /// Never store secret keys on the same host as the PIR server.
+    ///
+    /// In particular, do NOT store dev keys inside the same directory tree
+    /// as the generated PIR CRS/DB. This function will panic if you attempt
+    /// to write the key inside the output directory.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `path` is inside the PIR output directory.
+    #[cfg(any(test, feature = "dev-keys"))]
+    pub fn emit_secret_key(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        let path = path.into();
+        
+        // Guard: don't allow secret key in or under the PIR output directory
+        if path.starts_with(&self.output_dir) {
+            panic!(
+                "emit_secret_key path must not be inside the PIR output directory ({}). \
+                 Store dev keys separately from server data.",
+                self.output_dir.display()
+            );
+        }
+        
+        self.secret_key_path = Some(path);
+        self
+    }
+
     /// Run the setup and save to disk
     pub fn build(self) -> anyhow::Result<TwoLaneSetupResult> {
         let hot_dir = self.output_dir.join("hot");
@@ -98,7 +139,10 @@ impl TwoLaneSetup {
             "Setting up two-lane PIR databases"
         );
 
-        let (hot_crs, hot_db, secret_key) = pir_setup(
+        // Note: pir_setup returns a secret key, but we discard it for security.
+        // Clients should generate their own keys. The secret key from setup is
+        // only used internally and not returned or saved (unless emit_secret_key is used).
+        let (hot_crs, hot_db, _hot_sk) = pir_setup(
             &self.params,
             &self.hot_data,
             self.entry_size,
@@ -122,7 +166,17 @@ impl TwoLaneSetup {
             manifest.save(&hot_dir.join("manifest.json"))?;
         }
 
-        save_secret_key(&secret_key, &self.output_dir.join("secret_key.json"))?;
+        // Only save secret key if explicitly requested (dev/test only)
+        #[cfg(any(test, feature = "dev-keys"))]
+        if let Some(sk_path) = &self.secret_key_path {
+            // For testing, we need a key - regenerate one since we discarded the setup keys
+            let test_sk = RlweSecretKey::generate(&self.params, &mut sampler);
+            save_secret_key(&test_sk, sk_path)?;
+            tracing::warn!(
+                path = %sk_path.display(),
+                "Secret key saved for testing - DO NOT use in production"
+            );
+        }
 
         let config = TwoLaneConfig {
             hot_lane_db: hot_dir.join("encoded.json"),
@@ -148,7 +202,6 @@ impl TwoLaneSetup {
             hot_db,
             cold_crs,
             cold_db,
-            secret_key,
             config,
         })
     }
@@ -192,6 +245,7 @@ fn save_db(db: &EncodedDatabase, path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(any(test, feature = "dev-keys"))]
 fn save_secret_key(sk: &RlweSecretKey, path: &Path) -> anyhow::Result<()> {
     let json = serde_json::to_string(sk)?;
     std::fs::write(path, json)?;
@@ -230,9 +284,56 @@ mod tests {
         assert!(dir.path().join("cold/crs.json").exists());
         assert!(dir.path().join("cold/encoded.json").exists());
         assert!(dir.path().join("config.json").exists());
-        assert!(dir.path().join("secret_key.json").exists());
+        // Secret key should NOT be saved by default (security)
+        assert!(!dir.path().join("secret_key.json").exists());
         
         assert_eq!(result.config.hot_entries, 256);
         assert_eq!(result.config.cold_entries, 256);
+    }
+
+    #[test]
+    fn test_emit_secret_key() {
+        // Use separate directories for PIR data and secret key
+        let pir_dir = tempdir().unwrap();
+        let key_dir = tempdir().unwrap();
+        let sk_path = key_dir.path().join("test_secret_key.json");
+        
+        let hot_data: Vec<u8> = (0..256 * 32).map(|i| (i % 256) as u8).collect();
+        let cold_data: Vec<u8> = (0..256 * 32).map(|i| ((i + 1) % 256) as u8).collect();
+        
+        TwoLaneSetup::new(pir_dir.path())
+            .hot_data(hot_data)
+            .cold_data(cold_data)
+            .entry_size(32)
+            .params(test_params())
+            .emit_secret_key(&sk_path)
+            .build()
+            .unwrap();
+        
+        // Secret key should be saved when explicitly requested
+        assert!(sk_path.exists());
+        
+        // Should be loadable
+        let _sk = load_secret_key(&sk_path).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "emit_secret_key path must not be inside the PIR output directory")]
+    fn test_emit_secret_key_in_output_dir_panics() {
+        let dir = tempdir().unwrap();
+        // Try to save secret key inside the PIR output directory - should panic
+        let sk_path = dir.path().join("secret_key.json");
+        
+        let hot_data: Vec<u8> = (0..256 * 32).map(|i| (i % 256) as u8).collect();
+        let cold_data: Vec<u8> = (0..256 * 32).map(|i| ((i + 1) % 256) as u8).collect();
+        
+        TwoLaneSetup::new(dir.path())
+            .hot_data(hot_data)
+            .cold_data(cold_data)
+            .entry_size(32)
+            .params(test_params())
+            .emit_secret_key(&sk_path) // This should panic
+            .build()
+            .unwrap();
     }
 }
