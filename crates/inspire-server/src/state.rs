@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use inspire_core::{HotLaneManifest, Lane, LaneRouter, TwoLaneConfig};
-use inspire_pir::{ServerCrs, EncodedDatabase, ClientQuery, ServerResponse, respond};
+use inspire_pir::{ServerCrs, EncodedDatabase, ClientQuery, ServerResponse, respond, params::ShardConfig};
 
 use crate::error::{Result, ServerError};
 
@@ -47,6 +47,14 @@ impl LaneData {
     pub fn crs_json(&self) -> Result<String> {
         serde_json::to_string(&self.crs)
             .map_err(|e| ServerError::Json(e))
+    }
+
+    /// Get shard configuration for query building
+    ///
+    /// Returns the canonical ShardConfig from the encoded database,
+    /// ensuring client uses the same config that was used during setup.
+    pub fn shard_config(&self) -> ShardConfig {
+        self.encoded_db.config.clone()
     }
 }
 

@@ -20,6 +20,7 @@ pub struct CrsResponse {
     pub crs: String,
     pub lane: Lane,
     pub entry_count: u64,
+    pub shard_config: inspire_pir::params::ShardConfig,
 }
 
 /// Request to query endpoint
@@ -40,6 +41,7 @@ struct LaneState {
     crs: ServerCrs,
     secret_key: RlweSecretKey,
     entry_count: u64,
+    shard_config: inspire_pir::params::ShardConfig,
 }
 
 /// Two-lane PIR client that routes queries to the appropriate lane
@@ -81,6 +83,7 @@ impl TwoLaneClient {
             crs: hot_crs,
             secret_key: hot_sk,
             entry_count: hot_crs_resp.entry_count,
+            shard_config: hot_crs_resp.shard_config,
         });
         
         let cold_crs_resp = self.fetch_crs(Lane::Cold).await?;
@@ -91,6 +94,7 @@ impl TwoLaneClient {
             crs: cold_crs,
             secret_key: cold_sk,
             entry_count: cold_entries,
+            shard_config: cold_crs_resp.shard_config,
         });
         
         // Update router with cold lane entry count for proper indexing
@@ -157,16 +161,12 @@ impl TwoLaneClient {
     fn build_pir_query(&self, lane_state: &LaneState, index: u64) -> Result<(ClientState, ClientQuery)> {
         let mut sampler = GaussianSampler::new(lane_state.crs.params.sigma);
         
-        let shard_config = inspire_pir::params::ShardConfig {
-            shard_size_bytes: (lane_state.crs.params.ring_dim as u64) * 32,
-            entry_size_bytes: 32,
-            total_entries: lane_state.entry_count,
-        };
-        
+        // Use server-provided ShardConfig instead of re-deriving
+        // This ensures client uses the same config that was used during server setup
         let (state, query) = pir_query(
             &lane_state.crs,
             index,
-            &shard_config,
+            &lane_state.shard_config,
             &lane_state.secret_key,
             &mut sampler,
         ).map_err(|e| ClientError::InvalidResponse(format!("Failed to build query: {}", e)))?;

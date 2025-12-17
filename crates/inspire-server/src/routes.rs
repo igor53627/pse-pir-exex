@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use inspire_core::Lane;
-use inspire_pir::ClientQuery;
+use inspire_pir::{ClientQuery, params::ShardConfig};
 
 use crate::error::{Result, ServerError};
 use crate::state::{LaneStats, SharedState};
@@ -46,6 +46,8 @@ pub struct CrsResponse {
     pub lane: Lane,
     /// Number of entries in this lane
     pub entry_count: u64,
+    /// Shard configuration for query building
+    pub shard_config: ShardConfig,
 }
 
 /// Health check endpoint
@@ -73,6 +75,7 @@ async fn get_crs(
         crs: lane_data.crs_json()?,
         lane,
         entry_count: lane_data.entry_count,
+        shard_config: lane_data.shard_config(),
     }))
 }
 
