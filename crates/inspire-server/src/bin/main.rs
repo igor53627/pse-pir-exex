@@ -24,8 +24,7 @@ async fn main() -> anyhow::Result<()> {
 
     let server = ServerBuilder::new(config)
         .port(port)
-        .build()
-        .await?;
+        .build()?;
 
     tracing::info!("Server ready on port {}", port);
     server.run().await?;

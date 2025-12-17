@@ -8,11 +8,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use inspire_core::{Lane, PROTOCOL_VERSION};
-use inspire_pir::{ClientQuery, ServerResponse, params::ShardConfig};
+use inspire_core::Lane;
+use inspire_pir::{params::ShardConfig, ClientQuery, ServerResponse};
 
 use crate::error::{Result, ServerError};
-use crate::state::{LaneStats, SharedState};
+use crate::state::{LaneStats, ReloadResult, SharedState};
 
 /// Health check response
 #[derive(Serialize)]
@@ -24,55 +24,43 @@ pub struct HealthResponse {
 /// PIR query request
 #[derive(Deserialize)]
 pub struct QueryRequest {
-    /// Client PIR query
     pub query: ClientQuery,
 }
 
 /// PIR query response
 #[derive(Serialize)]
 pub struct QueryResponse {
-    /// Server PIR response
     pub response: ServerResponse,
-    /// Lane that processed the query
     pub lane: Lane,
 }
 
 /// Server info response (for version negotiation)
 #[derive(Serialize)]
 pub struct ServerInfo {
-    /// Protocol version
     pub version: String,
-    /// Configuration hash for change detection
     pub config_hash: String,
-    /// Manifest block number
     pub manifest_block: Option<u64>,
-    /// Number of entries in hot lane
     pub hot_entries: u64,
-    /// Number of entries in cold lane
     pub cold_entries: u64,
-    /// Number of contracts in hot lane
     pub hot_contracts: usize,
+    pub block_number: Option<u64>,
 }
 
 /// CRS response
 #[derive(Serialize)]
 pub struct CrsResponse {
-    /// Serialized ServerCrs (JSON)
     pub crs: String,
-    /// Lane this CRS belongs to
     pub lane: Lane,
-    /// Number of entries in this lane
     pub entry_count: u64,
-    /// Shard configuration for query building
     pub shard_config: ShardConfig,
 }
 
 /// Health check endpoint
 async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
-    let state = state.read().await;
-    let stats = state.stats();
-    let status = if state.is_ready() { "ready" } else { "loading" };
-    
+    let snapshot = state.load_snapshot();
+    let stats = snapshot.stats();
+    let status = if snapshot.is_ready() { "ready" } else { "loading" };
+
     Json(HealthResponse {
         status: status.to_string(),
         lanes: stats,
@@ -81,27 +69,29 @@ async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
 
 /// Server info endpoint (for version negotiation)
 async fn info(State(state): State<SharedState>) -> Json<ServerInfo> {
-    let state = state.read().await;
-    let stats = state.stats();
-    
+    let snapshot = state.load_snapshot();
+    let stats = snapshot.stats();
+
     Json(ServerInfo {
         version: state.config.version.clone(),
-        config_hash: state.config.config_hash.clone().unwrap_or_else(|| state.config.compute_hash()),
-        manifest_block: state.router.as_ref().map(|r| r.manifest().block_number),
+        config_hash: state
+            .config
+            .config_hash
+            .clone()
+            .unwrap_or_else(|| state.config.compute_hash()),
+        manifest_block: snapshot.router.as_ref().map(|r| r.manifest().block_number),
         hot_entries: stats.hot_entries,
         cold_entries: stats.cold_entries,
         hot_contracts: stats.hot_contracts,
+        block_number: stats.block_number,
     })
 }
 
 /// Get CRS for a specific lane
-async fn get_crs(
-    State(state): State<SharedState>,
-    Path(lane): Path<String>,
-) -> Result<Json<CrsResponse>> {
+async fn get_crs(State(state): State<SharedState>, Path(lane): Path<String>) -> Result<Json<CrsResponse>> {
     let lane = parse_lane(&lane)?;
-    let state = state.read().await;
-    let lane_data = state.get_lane(lane)?;
+    let snapshot = state.load_snapshot();
+    let lane_data = snapshot.get_lane(lane)?;
 
     Ok(Json(CrsResponse {
         crs: lane_data.crs_json()?,
@@ -118,11 +108,19 @@ async fn query(
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<QueryResponse>> {
     let lane = parse_lane(&lane)?;
-    
-    let state = state.read().await;
-    let response = state.process_query(lane, &req.query)?;
+
+    let snapshot = state.load_snapshot_full();
+    let response = snapshot.process_query(lane, &req.query)?;
 
     Ok(Json(QueryResponse { response, lane }))
+}
+
+/// Reload lanes from disk (admin endpoint)
+///
+/// Atomically swaps in a new snapshot without blocking ongoing queries.
+async fn admin_reload(State(state): State<SharedState>) -> Result<Json<ReloadResult>> {
+    let result = state.reload()?;
+    Ok(Json(result))
 }
 
 /// Parse lane from URL path
@@ -141,6 +139,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/info", get(info))
         .route("/crs/{lane}", get(get_crs))
         .route("/query/{lane}", post(query))
+        .route("/admin/reload", post(admin_reload))
         .with_state(state)
 }
 

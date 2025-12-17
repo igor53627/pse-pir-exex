@@ -23,26 +23,16 @@ impl TwoLaneServer {
     }
 
     /// Load both lanes from disk
-    pub async fn load_lanes(&self) -> Result<()> {
-        let mut state = self.state.write().await;
-        
-        if let Err(e) = state.load_hot_lane() {
-            tracing::warn!("Failed to load hot lane: {}", e);
-        }
-        
-        if let Err(e) = state.load_cold_lane() {
-            tracing::warn!("Failed to load cold lane: {}", e);
-        }
-
-        Ok(())
+    pub fn load_lanes(&self) -> Result<()> {
+        self.state.load_lanes()
     }
 
     /// Run the server
     pub async fn run(self) -> Result<()> {
         let router = create_router(self.state);
-        
+
         tracing::info!("Starting Two-Lane PIR server on {}", self.addr);
-        
+
         let listener = TcpListener::bind(self.addr).await?;
         axum::serve(listener, router)
             .await
@@ -97,23 +87,11 @@ impl ServerBuilder {
         self
     }
 
-    pub async fn build(self) -> Result<TwoLaneServer> {
+    pub fn build(self) -> Result<TwoLaneServer> {
         let server = TwoLaneServer::new(self.config, self.addr);
-        
+
         if self.load_hot || self.load_cold {
-            let mut state = server.state.write().await;
-            
-            if self.load_hot {
-                if let Err(e) = state.load_hot_lane() {
-                    tracing::warn!("Failed to load hot lane: {}", e);
-                }
-            }
-            
-            if self.load_cold {
-                if let Err(e) = state.load_cold_lane() {
-                    tracing::warn!("Failed to load cold lane: {}", e);
-                }
-            }
+            server.load_lanes()?;
         }
 
         Ok(server)
