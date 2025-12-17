@@ -47,7 +47,7 @@ mod indexing;
 mod error;
 
 pub use lane::Lane;
-pub use config::TwoLaneConfig;
+pub use config::{TwoLaneConfig, PROTOCOL_VERSION};
 pub use manifest::{HotLaneManifest, HotContract};
 pub use routing::{LaneRouter, QueryTarget, RoutedQuery};
 pub use indexing::{slot_to_offset, hot_index, cold_index};

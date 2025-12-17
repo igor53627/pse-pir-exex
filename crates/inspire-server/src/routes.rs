@@ -8,7 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use inspire_core::Lane;
+use inspire_core::{Lane, PROTOCOL_VERSION};
 use inspire_pir::{ClientQuery, ServerResponse, params::ShardConfig};
 
 use crate::error::{Result, ServerError};
@@ -37,6 +37,23 @@ pub struct QueryResponse {
     pub lane: Lane,
 }
 
+/// Server info response (for version negotiation)
+#[derive(Serialize)]
+pub struct ServerInfo {
+    /// Protocol version
+    pub version: String,
+    /// Configuration hash for change detection
+    pub config_hash: String,
+    /// Manifest block number
+    pub manifest_block: Option<u64>,
+    /// Number of entries in hot lane
+    pub hot_entries: u64,
+    /// Number of entries in cold lane
+    pub cold_entries: u64,
+    /// Number of contracts in hot lane
+    pub hot_contracts: usize,
+}
+
 /// CRS response
 #[derive(Serialize)]
 pub struct CrsResponse {
@@ -59,6 +76,21 @@ async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: status.to_string(),
         lanes: stats,
+    })
+}
+
+/// Server info endpoint (for version negotiation)
+async fn info(State(state): State<SharedState>) -> Json<ServerInfo> {
+    let state = state.read().await;
+    let stats = state.stats();
+    
+    Json(ServerInfo {
+        version: state.config.version.clone(),
+        config_hash: state.config.config_hash.clone().unwrap_or_else(|| state.config.compute_hash()),
+        manifest_block: state.router.as_ref().map(|r| r.manifest().block_number),
+        hot_entries: stats.hot_entries,
+        cold_entries: stats.cold_entries,
+        hot_contracts: stats.hot_contracts,
     })
 }
 
@@ -106,6 +138,7 @@ fn parse_lane(s: &str) -> Result<Lane> {
 pub fn create_router(state: SharedState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/info", get(info))
         .route("/crs/{lane}", get(get_crs))
         .route("/query/{lane}", post(query))
         .with_state(state)

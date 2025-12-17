@@ -178,16 +178,12 @@ impl TwoLaneSetup {
             );
         }
 
-        let config = TwoLaneConfig {
-            hot_lane_db: hot_dir.join("encoded.json"),
-            hot_lane_crs: hot_dir.join("crs.json"),
-            hot_lane_manifest: hot_dir.join("manifest.json"),
-            cold_lane_db: cold_dir.join("encoded.json"),
-            cold_lane_crs: cold_dir.join("crs.json"),
-            hot_entries: (self.hot_data.len() / self.entry_size) as u64,
-            cold_entries: (self.cold_data.len() / self.entry_size) as u64,
-            entry_size: self.entry_size,
-        };
+        let config = TwoLaneConfig::from_base_dir(&self.output_dir)
+            .with_entries(
+                (self.hot_data.len() / self.entry_size) as u64,
+                (self.cold_data.len() / self.entry_size) as u64,
+            )
+            .with_hash();
 
         config.save(&self.output_dir.join("config.json"))?;
 

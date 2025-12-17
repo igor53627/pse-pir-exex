@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Protocol version constant
+pub const PROTOCOL_VERSION: &str = "1.0.0";
+
 /// Configuration for the two-lane PIR system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TwoLaneConfig {
@@ -22,6 +25,16 @@ pub struct TwoLaneConfig {
     pub cold_entries: u64,
     /// Entry size in bytes
     pub entry_size: usize,
+    /// Protocol version
+    #[serde(default = "default_version")]
+    pub version: String,
+    /// Configuration hash for change detection
+    #[serde(default)]
+    pub config_hash: Option<String>,
+}
+
+fn default_version() -> String {
+    PROTOCOL_VERSION.to_string()
 }
 
 impl TwoLaneConfig {
@@ -52,6 +65,8 @@ impl TwoLaneConfig {
             hot_entries: 0,
             cold_entries: 0,
             entry_size: crate::constants::ENTRY_SIZE,
+            version: PROTOCOL_VERSION.to_string(),
+            config_hash: None,
         }
     }
 
@@ -89,6 +104,28 @@ impl TwoLaneConfig {
         let cold_size = crate::constants::COLD_LANE_QUERY_SIZE as f64;
         (hot_rate * hot_size + cold_rate * cold_size) as usize
     }
+
+    /// Compute a hash of the configuration for change detection
+    ///
+    /// This hash includes entry counts and entry size, which are the key
+    /// parameters that must match between client and server.
+    pub fn compute_hash(&self) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let mut hasher = DefaultHasher::new();
+        self.hot_entries.hash(&mut hasher);
+        self.cold_entries.hash(&mut hasher);
+        self.entry_size.hash(&mut hasher);
+        self.version.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+
+    /// Set the config hash (call after setting entries)
+    pub fn with_hash(mut self) -> Self {
+        self.config_hash = Some(self.compute_hash());
+        self
+    }
 }
 
 impl Default for TwoLaneConfig {
@@ -113,5 +150,36 @@ mod tests {
         let config = TwoLaneConfig::default();
         let avg = config.estimated_avg_query_size();
         assert!(avg > 50_000 && avg < 70_000);
+    }
+
+    #[test]
+    fn test_config_hash_changes_on_shape_or_version_change() {
+        let base = TwoLaneConfig::from_base_dir("/data/pir")
+            .with_entries(100, 200)
+            .with_hash();
+        
+        // Same config should produce same hash
+        let same = TwoLaneConfig::from_base_dir("/data/pir")
+            .with_entries(100, 200)
+            .with_hash();
+        assert_eq!(base.config_hash, same.config_hash);
+        
+        // Different hot entries should change hash
+        let different_hot = TwoLaneConfig::from_base_dir("/data/pir")
+            .with_entries(101, 200)
+            .with_hash();
+        assert_ne!(base.config_hash, different_hot.config_hash);
+        
+        // Different cold entries should change hash
+        let different_cold = TwoLaneConfig::from_base_dir("/data/pir")
+            .with_entries(100, 201)
+            .with_hash();
+        assert_ne!(base.config_hash, different_cold.config_hash);
+    }
+
+    #[test]
+    fn test_config_has_version() {
+        let config = TwoLaneConfig::default();
+        assert_eq!(config.version, PROTOCOL_VERSION);
     }
 }
