@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "inspire-server"
+path = "src/bin/main.rs"
+
 [dependencies]
 inspire-core = { path = "../inspire-core" }
 serde = { workspace = true }
@@ -13,3 +17,4 @@ axum = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
