@@ -23,26 +23,16 @@ impl TwoLaneServer {
     }
 
     /// Load both lanes from disk
-    pub async fn load_lanes(&self) -> Result<()> {
-        let mut state = self.state.write().await;
-        
-        if let Err(e) = state.load_hot_lane() {
-            tracing::warn!("Failed to load hot lane: {}", e);
-        }
-        
-        if let Err(e) = state.load_cold_lane() {
-            tracing::warn!("Failed to load cold lane: {}", e);
-        }
-
-        Ok(())
+    pub fn load_lanes(&self) -> Result<()> {
+        self.state.load_lanes()
     }
 
     /// Run the server
     pub async fn run(self) -> Result<()> {
         let router = create_router(self.state);
-        
+
         tracing::info!("Starting Two-Lane PIR server on {}", self.addr);
-        
+
         let listener = TcpListener::bind(self.addr).await?;
         axum::serve(listener, router)
             .await
@@ -61,8 +51,7 @@ impl TwoLaneServer {
 pub struct ServerBuilder {
     config: TwoLaneConfig,
     addr: SocketAddr,
-    load_hot: bool,
-    load_cold: bool,
+    load_lanes: bool,
 }
 
 impl ServerBuilder {
@@ -70,8 +59,7 @@ impl ServerBuilder {
         Self {
             config,
             addr: ([127, 0, 0, 1], 3000).into(),
-            load_hot: true,
-            load_cold: true,
+            load_lanes: true,
         }
     }
 
@@ -85,35 +73,19 @@ impl ServerBuilder {
         self
     }
 
-    pub fn hot_only(mut self) -> Self {
-        self.load_hot = true;
-        self.load_cold = false;
+
+
+    /// Skip loading lanes on build (useful for testing)
+    pub fn skip_load(mut self) -> Self {
+        self.load_lanes = false;
         self
     }
 
-    pub fn cold_only(mut self) -> Self {
-        self.load_hot = false;
-        self.load_cold = true;
-        self
-    }
-
-    pub async fn build(self) -> Result<TwoLaneServer> {
+    pub fn build(self) -> Result<TwoLaneServer> {
         let server = TwoLaneServer::new(self.config, self.addr);
-        
-        if self.load_hot || self.load_cold {
-            let mut state = server.state.write().await;
-            
-            if self.load_hot {
-                if let Err(e) = state.load_hot_lane() {
-                    tracing::warn!("Failed to load hot lane: {}", e);
-                }
-            }
-            
-            if self.load_cold {
-                if let Err(e) = state.load_cold_lane() {
-                    tracing::warn!("Failed to load cold lane: {}", e);
-                }
-            }
+
+        if self.load_lanes {
+            server.load_lanes()?;
         }
 
         Ok(server)

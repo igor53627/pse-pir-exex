@@ -9,5 +9,5 @@ pub mod routes;
 pub mod error;
 
 pub use server::{TwoLaneServer, ServerBuilder};
-pub use state::ServerState;
+pub use state::{ServerState, DbSnapshot, SharedState, LaneStats, ReloadResult, LaneData, LaneDatabase};
 pub use error::ServerError;
