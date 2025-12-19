@@ -1,4 +1,4 @@
-# AGENTS.md - pse-pir-exex
+# AGENTS.md - pse-inspire-exex
 
 ## Project Overview
 
@@ -9,7 +9,7 @@ Two-Lane InsPIRe PIR for private Ethereum state queries.
 ## Project Structure
 
 ```
-pse-pir-exex/
+pse-inspire-exex/
 ├── crates/
 │   ├── inspire-core/     # Shared types (Lane, Config)
 │   ├── inspire-server/   # Two-lane PIR server

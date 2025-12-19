@@ -10,6 +10,8 @@ default = []
 dev-keys = []
 # Enable Reth ExEx integration for real-time lane updates
 exex = ["dep:reth-ethereum", "dep:reth-tracing", "dep:eyre", "dep:futures", "dep:clap", "dep:metrics"]
+# Enable gas backfill for data-driven hot lane selection
+backfill = ["dep:alloy-provider", "dep:alloy-rpc-types", "dep:alloy-primitives", "dep:alloy-transport", "dep:futures", "dep:clap", "dep:indicatif"]
 
 [[bin]]
 name = "lane-builder"
@@ -19,6 +21,11 @@ path = "src/bin/main.rs"
 name = "lane-exex"
 path = "src/bin/exex.rs"
 required-features = ["exex"]
+
+[[bin]]
+name = "lane-backfill"
+path = "src/bin/backfill.rs"
+required-features = ["backfill"]
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }
@@ -36,9 +43,16 @@ reqwest = { workspace = true }
 reth-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.9.3", optional = true, features = ["exex", "node-api", "node", "cli"] }
 reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v1.9.3", optional = true }
 eyre = { version = "0.6", optional = true }
-futures = { version = "0.3", optional = true }
+futures = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
+
+# Alloy for RPC access (gas backfill)
+alloy-provider = { workspace = true, optional = true }
+alloy-rpc-types = { workspace = true, optional = true }
+alloy-primitives = { workspace = true, optional = true }
+alloy-transport = { workspace = true, optional = true }
+indicatif = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.10"

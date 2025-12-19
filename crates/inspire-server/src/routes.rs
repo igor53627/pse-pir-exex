@@ -2,14 +2,15 @@
 
 use axum::{
     extract::{Path, State},
-    response::Json,
+    http::header,
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
 
 use inspire_core::Lane;
-use inspire_pir::{params::ShardConfig, ClientQuery, ServerResponse};
+use inspire_pir::{params::ShardConfig, ClientQuery, SeededClientQuery, ServerResponse};
 
 use crate::error::{Result, ServerError};
 use crate::state::{LaneStats, ReloadResult, SharedState};
@@ -21,10 +22,16 @@ pub struct HealthResponse {
     pub lanes: LaneStats,
 }
 
-/// PIR query request
+/// PIR query request (full ciphertext)
 #[derive(Deserialize)]
 pub struct QueryRequest {
     pub query: ClientQuery,
+}
+
+/// Seeded PIR query request (~50% smaller)
+#[derive(Deserialize)]
+pub struct SeededQueryRequest {
+    pub query: SeededClientQuery,
 }
 
 /// PIR query response
@@ -101,7 +108,7 @@ async fn get_crs(State(state): State<SharedState>, Path(lane): Path<String>) -> 
     }))
 }
 
-/// Process a PIR query
+/// Process a PIR query (full ciphertext)
 async fn query(
     State(state): State<SharedState>,
     Path(lane): Path<String>,
@@ -113,6 +120,72 @@ async fn query(
     let response = snapshot.process_query(lane, &req.query)?;
 
     Ok(Json(QueryResponse { response, lane }))
+}
+
+/// Process a seeded PIR query (~50% smaller, server expands)
+async fn query_seeded(
+    State(state): State<SharedState>,
+    Path(lane): Path<String>,
+    Json(req): Json<SeededQueryRequest>,
+) -> Result<Json<QueryResponse>> {
+    let lane = parse_lane(&lane)?;
+
+    // Expand seeded query to full query (regenerate `a` polynomials from seeds)
+    let expanded_query = req.query.expand();
+
+    let snapshot = state.load_snapshot_full();
+    let response = snapshot.process_query(lane, &expanded_query)?;
+
+    Ok(Json(QueryResponse { response, lane }))
+}
+
+/// Process a seeded PIR query with binary response (~75% smaller total)
+///
+/// Request: seeded JSON query (~230 KB)
+/// Response: binary bincode (~544 KB vs ~1,296 KB JSON)
+async fn query_seeded_binary(
+    State(state): State<SharedState>,
+    Path(lane): Path<String>,
+    Json(req): Json<SeededQueryRequest>,
+) -> Result<Response> {
+    let lane = parse_lane(&lane)?;
+
+    let expanded_query = req.query.expand();
+
+    let snapshot = state.load_snapshot_full();
+    let response = snapshot.process_query(lane, &expanded_query)?;
+
+    let binary = response
+        .to_binary()
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    Ok((
+        [(header::CONTENT_TYPE, "application/octet-stream")],
+        binary,
+    )
+        .into_response())
+}
+
+/// Process a full PIR query with binary response
+async fn query_binary(
+    State(state): State<SharedState>,
+    Path(lane): Path<String>,
+    Json(req): Json<QueryRequest>,
+) -> Result<Response> {
+    let lane = parse_lane(&lane)?;
+
+    let snapshot = state.load_snapshot_full();
+    let response = snapshot.process_query(lane, &req.query)?;
+
+    let binary = response
+        .to_binary()
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    Ok((
+        [(header::CONTENT_TYPE, "application/octet-stream")],
+        binary,
+    )
+        .into_response())
 }
 
 /// Reload lanes from disk (admin endpoint)
@@ -139,6 +212,9 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/info", get(info))
         .route("/crs/{lane}", get(get_crs))
         .route("/query/{lane}", post(query))
+        .route("/query/{lane}/binary", post(query_binary))
+        .route("/query/{lane}/seeded", post(query_seeded))
+        .route("/query/{lane}/seeded/binary", post(query_seeded_binary))
         .route("/admin/reload", post(admin_reload))
         .with_state(state)
 }

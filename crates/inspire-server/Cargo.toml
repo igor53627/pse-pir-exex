@@ -13,6 +13,7 @@ inspire-core = { path = "../inspire-core" }
 inspire-pir = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+bincode = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tracing = { workspace = true }

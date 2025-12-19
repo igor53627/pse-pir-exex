@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Seed expansion support for ~50% smaller queries
+  - `/query/{lane}/seeded` endpoint for seeded queries
+  - `SeededQueryRequest` type on server
+  - `ClientBuilder::seed_expansion(bool)` to enable/disable
+  - Seed expansion enabled by default
+
+### Changed
+
+- Updated README to reflect accurate InsPIRe communication costs
+  - InsPIRe is O(d) not O(sqrt(N)) - query size is independent of database size
+  - Hot lane benefit is faster server response, not smaller queries
+  - Updated performance tables with seed expansion numbers (~230 KB/query)
+
+### Added (prior)
+
+- Gas backfill for data-driven hot lane selection (`backfill` feature)
+  - `lane-backfill` binary for scanning historical blocks to find gas guzzlers
+  - Concurrent block fetching via alloy-provider with configurable batch size
+  - Progress bar showing backfill progress and ETA
+  - `GasTracker` for aggregating gas usage per contract address
+  - `HybridScorer` combining gas data with curated contracts and category weights
+  - Category weight multipliers (privacy 3x, bridge 2x, DeFi 1.5x)
+  - `BackfillResult` and `GasStats` types for serializable output
+  - Integration with `HotLaneBuilder` via `load_scored_contracts()`
+  - Documentation at docs/GAS_BACKFILL.md
 - Reth ExEx integration for real-time lane updates (`exex` feature) (#17)
   - `lane-exex` binary for running ExEx as a standalone Reth execution extension
   - Subscribes to ChainCommitted/Reverted/Reorged notifications from Reth

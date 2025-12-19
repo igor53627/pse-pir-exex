@@ -99,8 +99,8 @@ pub const HOT_CONTRACTS: &[KnownContract] = &[
         category: "privacy",
     },
     KnownContract {
-        address: hex_literal("0xA0B86991C6218B36C1D19D4A2E9EB0cE3606eB48"),
-        name: "Railgun",
+        address: hex_literal("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9"),
+        name: "Railgun Smart Wallet",
         category: "privacy",
     },
     // Bridges

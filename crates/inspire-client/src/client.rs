@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use inspire_core::{Address, Lane, LaneRouter, StorageKey, StorageValue};
 use inspire_pir::{
-    ServerCrs, ClientQuery, ClientState, ServerResponse,
-    query as pir_query, extract,
+    ServerCrs, ClientQuery, ClientState, SeededClientQuery, ServerResponse,
+    query as pir_query, query_seeded as pir_query_seeded, extract,
     InspireParams,
 };
 use inspire_pir::math::GaussianSampler;
@@ -23,10 +23,16 @@ pub struct CrsResponse {
     pub shard_config: inspire_pir::params::ShardConfig,
 }
 
-/// Request to query endpoint
+/// Request to query endpoint (full ciphertext)
 #[derive(Serialize)]
 struct QueryRequest {
     query: ClientQuery,
+}
+
+/// Request to seeded query endpoint (~50% smaller)
+#[derive(Serialize)]
+struct SeededQueryRequest {
+    query: SeededClientQuery,
 }
 
 /// Response from query endpoint
@@ -51,6 +57,10 @@ pub struct TwoLaneClient {
     server_url: String,
     hot_state: Option<LaneState>,
     cold_state: Option<LaneState>,
+    /// Use seed expansion for ~50% smaller queries
+    use_seed_expansion: bool,
+    /// Use binary responses for ~58% smaller downloads
+    use_binary_response: bool,
 }
 
 impl std::fmt::Debug for TwoLaneClient {
@@ -65,12 +75,24 @@ impl std::fmt::Debug for TwoLaneClient {
 impl TwoLaneClient {
     /// Create a new client with the given router and server URL
     pub fn new(router: LaneRouter, server_url: String) -> Self {
+        Self::with_options(router, server_url, true, true) // seed expansion + binary response on by default
+    }
+
+    /// Create a new client with explicit settings
+    pub fn with_options(
+        router: LaneRouter,
+        server_url: String,
+        use_seed_expansion: bool,
+        use_binary_response: bool,
+    ) -> Self {
         Self {
             router,
             http: Client::new(),
             server_url: server_url.trim_end_matches('/').to_string(),
             hot_state: None,
             cold_state: None,
+            use_seed_expansion,
+            use_binary_response,
         }
     }
 
@@ -132,21 +154,41 @@ impl TwoLaneClient {
         tracing::debug!(
             contract = hex::encode(contract),
             lane = %lane,
+            seed_expansion = self.use_seed_expansion,
+            binary_response = self.use_binary_response,
             "Routing query"
         );
 
         let lane_state = self.get_lane_state(lane)?;
-        
         let index = self.compute_index(&contract, &slot, lane)?;
         
-        let (client_state, client_query) = self.build_pir_query(lane_state, index)?;
-        
-        let response = self.send_query(lane, &client_query).await?;
+        let (client_state, server_response) = match (self.use_seed_expansion, self.use_binary_response) {
+            (true, true) => {
+                let (state, query) = self.build_pir_query_seeded(lane_state, index)?;
+                let resp = self.send_query_seeded_binary(lane, &query).await?;
+                (state, resp)
+            }
+            (true, false) => {
+                let (state, query) = self.build_pir_query_seeded(lane_state, index)?;
+                let resp = self.send_query_seeded(lane, &query).await?;
+                (state, resp.response)
+            }
+            (false, true) => {
+                let (state, query) = self.build_pir_query(lane_state, index)?;
+                let resp = self.send_query_binary(lane, &query).await?;
+                (state, resp)
+            }
+            (false, false) => {
+                let (state, query) = self.build_pir_query(lane_state, index)?;
+                let resp = self.send_query(lane, &query).await?;
+                (state, resp.response)
+            }
+        };
         
         let entry = extract(
             &lane_state.crs,
             &client_state,
-            &response.response,
+            &server_response,
             32,
         ).map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
         
@@ -155,12 +197,10 @@ impl TwoLaneClient {
         Ok(result)
     }
 
-    /// Build a PIR query for the given index
+    /// Build a PIR query for the given index (full ciphertext)
     fn build_pir_query(&self, lane_state: &LaneState, index: u64) -> Result<(ClientState, ClientQuery)> {
         let mut sampler = GaussianSampler::new(lane_state.crs.params.sigma);
         
-        // Use server-provided ShardConfig instead of re-deriving
-        // This ensures client uses the same config that was used during server setup
         let (state, query) = pir_query(
             &lane_state.crs,
             index,
@@ -172,7 +212,22 @@ impl TwoLaneClient {
         Ok((state, query))
     }
 
-    /// Send a query to the server
+    /// Build a seeded PIR query for the given index (~50% smaller)
+    fn build_pir_query_seeded(&self, lane_state: &LaneState, index: u64) -> Result<(ClientState, SeededClientQuery)> {
+        let mut sampler = GaussianSampler::new(lane_state.crs.params.sigma);
+        
+        let (state, query) = pir_query_seeded(
+            &lane_state.crs,
+            index,
+            &lane_state.shard_config,
+            &lane_state.secret_key,
+            &mut sampler,
+        ).map_err(|e| ClientError::InvalidResponse(format!("Failed to build seeded query: {}", e)))?;
+        
+        Ok((state, query))
+    }
+
+    /// Send a query to the server (full ciphertext)
     async fn send_query(&self, lane: Lane, query: &ClientQuery) -> Result<QueryResponse> {
         let url = format!("{}/query/{}", self.server_url, lane);
         
@@ -191,6 +246,73 @@ impl TwoLaneClient {
 
         let query_resp: QueryResponse = resp.json().await?;
         Ok(query_resp)
+    }
+
+    /// Send a seeded query to the server (~50% smaller)
+    async fn send_query_seeded(&self, lane: Lane, query: &SeededClientQuery) -> Result<QueryResponse> {
+        let url = format!("{}/query/{}/seeded", self.server_url, lane);
+        
+        let resp = self.http
+            .post(&url)
+            .json(&SeededQueryRequest { query: query.clone() })
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(ClientError::Server {
+                status: resp.status().as_u16(),
+                message: resp.text().await.unwrap_or_default(),
+            });
+        }
+
+        let query_resp: QueryResponse = resp.json().await?;
+        Ok(query_resp)
+    }
+
+    /// Send a seeded query with binary response (~75% smaller total)
+    async fn send_query_seeded_binary(&self, lane: Lane, query: &SeededClientQuery) -> Result<ServerResponse> {
+        let url = format!("{}/query/{}/seeded/binary", self.server_url, lane);
+        
+        let resp = self.http
+            .post(&url)
+            .json(&SeededQueryRequest { query: query.clone() })
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(ClientError::Server {
+                status: resp.status().as_u16(),
+                message: resp.text().await.unwrap_or_default(),
+            });
+        }
+
+        let bytes = resp.bytes().await?;
+        let response = ServerResponse::from_binary(&bytes)
+            .map_err(|e| ClientError::InvalidResponse(format!("Failed to decode binary response: {}", e)))?;
+        Ok(response)
+    }
+
+    /// Send a query with binary response (~58% smaller)
+    async fn send_query_binary(&self, lane: Lane, query: &ClientQuery) -> Result<ServerResponse> {
+        let url = format!("{}/query/{}/binary", self.server_url, lane);
+        
+        let resp = self.http
+            .post(&url)
+            .json(&QueryRequest { query: query.clone() })
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(ClientError::Server {
+                status: resp.status().as_u16(),
+                message: resp.text().await.unwrap_or_default(),
+            });
+        }
+
+        let bytes = resp.bytes().await?;
+        let response = ServerResponse::from_binary(&bytes)
+            .map_err(|e| ClientError::InvalidResponse(format!("Failed to decode binary response: {}", e)))?;
+        Ok(response)
     }
 
     /// Get lane state
@@ -252,6 +374,8 @@ fn generate_secret_key(params: &InspireParams) -> RlweSecretKey {
 pub struct ClientBuilder {
     server_url: String,
     manifest_path: Option<std::path::PathBuf>,
+    use_seed_expansion: bool,
+    use_binary_response: bool,
 }
 
 impl ClientBuilder {
@@ -259,11 +383,25 @@ impl ClientBuilder {
         Self {
             server_url: server_url.into(),
             manifest_path: None,
+            use_seed_expansion: true,  // on by default
+            use_binary_response: true, // on by default
         }
     }
 
     pub fn manifest(mut self, path: impl Into<std::path::PathBuf>) -> Self {
         self.manifest_path = Some(path.into());
+        self
+    }
+
+    /// Enable/disable seed expansion (~50% smaller queries)
+    pub fn seed_expansion(mut self, enabled: bool) -> Self {
+        self.use_seed_expansion = enabled;
+        self
+    }
+
+    /// Enable/disable binary responses (~58% smaller downloads)
+    pub fn binary_response(mut self, enabled: bool) -> Self {
+        self.use_binary_response = enabled;
         self
     }
 
@@ -275,7 +413,12 @@ impl ClientBuilder {
         };
         
         let router = LaneRouter::new(manifest);
-        Ok(TwoLaneClient::new(router, self.server_url))
+        Ok(TwoLaneClient::with_options(
+            router,
+            self.server_url,
+            self.use_seed_expansion,
+            self.use_binary_response,
+        ))
     }
 }
 
