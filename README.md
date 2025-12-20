@@ -1,4 +1,4 @@
-# pse-inspire-exex
+# inspire-exex
 
 Two-Lane InsPIRe PIR for private Ethereum state queries.
 
