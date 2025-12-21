@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use inspire_core::{Address, Lane, LaneRouter, StorageKey, StorageValue};
 use inspire_pir::{
     ServerCrs, ClientQuery, ClientState, SeededClientQuery, ServerResponse,
-    query as pir_query, query_seeded as pir_query_seeded, extract,
+    query as pir_query, query_seeded as pir_query_seeded, extract_with_variant,
     InspireParams,
 };
+use inspire_pir::params::InspireVariant;
 use inspire_pir::math::GaussianSampler;
 use inspire_pir::rlwe::RlweSecretKey;
 
@@ -185,11 +186,12 @@ impl TwoLaneClient {
             }
         };
         
-        let entry = extract(
+        let entry = extract_with_variant(
             &lane_state.crs,
             &client_state,
             &server_response,
             32,
+            InspireVariant::OnePacking,
         ).map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
         
         let mut result = [0u8; 32];

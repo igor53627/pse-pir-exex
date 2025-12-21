@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 use inspire_pir::{
-    query_seeded as pir_query_seeded, extract,
+    query_seeded as pir_query_seeded, extract_with_variant,
     SeededClientQuery, ServerCrs, ServerResponse,
 };
 use inspire_pir::math::GaussianSampler;
-use inspire_pir::params::ShardConfig;
+use inspire_pir::params::{InspireVariant, ShardConfig};
 use inspire_core::PIR_PARAMS_VERSION;
 
 use crate::console_log;
@@ -148,11 +148,12 @@ impl PirClient {
         
         console_log!("Extracting result...");
         
-        let entry = extract(
+        let entry = extract_with_variant(
             &inner.crs,
             &client_state,
             &response.response,
             64,
+            InspireVariant::OnePacking,
         ).map_err(|e| PirError::Pir(e.to_string()))?;
         
         Ok(entry)
@@ -183,11 +184,12 @@ impl PirClient {
         let response = ServerResponse::from_binary(&bytes)
             .map_err(|e| PirError::Pir(e.to_string()))?;
         
-        let entry = extract(
+        let entry = extract_with_variant(
             &inner.crs,
             &client_state,
             &response,
             64,
+            InspireVariant::OnePacking,
         ).map_err(|e| PirError::Pir(e.to_string()))?;
         
         Ok(entry)

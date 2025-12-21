@@ -13,7 +13,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use inspire_core::{HotLaneManifest, Lane, LaneRouter, TwoLaneConfig, CrsMetadata, PIR_PARAMS_VERSION};
 use inspire_pir::{
-    params::ShardConfig, respond, respond_mmap, ClientQuery, EncodedDatabase, MmapDatabase,
+    params::ShardConfig, respond_one_packing, respond_mmap_one_packing, ClientQuery, EncodedDatabase, MmapDatabase,
     ServerCrs, ServerResponse,
 };
 
@@ -94,13 +94,15 @@ impl LaneData {
     }
 
     /// Process a PIR query and return the response
+    ///
+    /// Uses tree packing (OnePacking) to reduce response size from 544 KB to 32 KB.
     pub fn process_query(&self, query: &ClientQuery) -> Result<ServerResponse> {
         match &self.database {
             LaneDatabase::InMemory(db) => {
-                respond(&self.crs, db, query).map_err(|e| ServerError::PirError(e.to_string()))
+                respond_one_packing(&self.crs, db, query).map_err(|e| ServerError::PirError(e.to_string()))
             }
             LaneDatabase::Mmap(db) => {
-                respond_mmap(&self.crs, db, query).map_err(|e| ServerError::PirError(e.to_string()))
+                respond_mmap_one_packing(&self.crs, db, query).map_err(|e| ServerError::PirError(e.to_string()))
             }
         }
     }
