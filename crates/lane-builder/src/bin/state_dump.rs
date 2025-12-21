@@ -21,10 +21,10 @@ use eyre::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use reth_db::{
     cursor::DbCursorRO,
-    mdbx::{DatabaseArguments, DatabaseEnv, DatabaseEnvKind},
+    open_db_read_only,
     tables,
     transaction::DbTx,
-    ClientVersion, Database,
+    Database,
 };
 use serde::{Deserialize, Serialize};
 
@@ -82,7 +82,7 @@ fn main() -> Result<()> {
         "Starting state dump"
     );
 
-    let db = open_db_read_only(&args.db_path)?;
+    let db = open_database_read_only(&args.db_path)?;
     let tx = db.tx()?;
 
     let mut num_accounts = 0u64;
@@ -118,15 +118,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn open_db_read_only(path: &PathBuf) -> Result<DatabaseEnv> {
+fn open_database_read_only(path: &PathBuf) -> Result<impl Database> {
     tracing::info!(path = %path.display(), "Opening MDBX database read-only");
-
-    let db = DatabaseEnv::open(
-        path,
-        DatabaseEnvKind::RO,
-        DatabaseArguments::new(ClientVersion::default()),
-    )?;
-
+    let db = open_db_read_only(path, Default::default())?;
     Ok(db)
 }
 

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Alloy WASM + EIP-7702 Test</title>
+    <style>
+        body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+        h1 { color: #7f5af0; }
+        pre { background: #0a0a12; padding: 15px; border-radius: 6px; overflow-x: auto; }
+        .success { color: #2ecc71; }
+        .error { color: #e74c3c; }
+        .section { margin: 20px 0; padding: 15px; background: #252540; border-radius: 8px; }
+        h3 { color: #7f5af0; margin-top: 0; }
+    </style>
+</head>
+<body>
+    <h1>Alloy WASM + EIP-7702 Test</h1>
+    
+    <div class="section">
+        <h3>Wallet Generation</h3>
+        <pre id="wallet-output">Loading...</pre>
+    </div>
+    
+    <div class="section">
+        <h3>EIP-7702 Authorization Signing</h3>
+        <pre id="auth-output">Loading...</pre>
+    </div>
+    
+    <div class="section">
+        <h3>ABI Encoding</h3>
+        <pre id="abi-output">Loading...</pre>
+    </div>
+    
+    <div class="section">
+        <h3>Unit Formatting</h3>
+        <pre id="units-output">Loading...</pre>
+    </div>
+
+<script type="module">
+import init, { 
+    generate_wallet, 
+    get_address,
+    sign_authorization,
+    sign_message,
+    encode_balance_of,
+    encode_transfer,
+    format_units,
+    parse_units,
+    keccak256
+} from './pkg/alloy_wasm.js';
+
+function toHex(bytes) {
+    return '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function run() {
+    await init();
+    
+    // Test wallet generation
+    const walletOut = document.getElementById('wallet-output');
+    try {
+        const walletJson = generate_wallet();
+        const wallet = JSON.parse(walletJson);
+        walletOut.innerHTML = `<span class="success">[OK] Wallet generated</span>
+Private Key: ${wallet.private_key}
+Address: ${wallet.address}
+
+Verify address from key: ${get_address(wallet.private_key)}`;
+        
+        // Test EIP-7702 authorization
+        const authOut = document.getElementById('auth-output');
+        try {
+            const authRequest = JSON.stringify({
+                chain_id: 11155111, // Sepolia
+                contract_address: "0x1234567890123456789012345678901234567890",
+                nonce: 0
+            });
+            
+            const signedAuthJson = sign_authorization(wallet.private_key, authRequest);
+            const signedAuth = JSON.parse(signedAuthJson);
+            
+            authOut.innerHTML = `<span class="success">[OK] EIP-7702 Authorization signed</span>
+Chain ID: ${signedAuth.chain_id}
+Contract: ${signedAuth.address}
+Nonce: ${signedAuth.nonce}
+Y Parity: ${signedAuth.y_parity}
+R: ${signedAuth.r}
+S: ${signedAuth.s}
+RLP Encoded: ${signedAuth.rlp_encoded}`;
+        } catch (e) {
+            authOut.innerHTML = `<span class="error">[FAIL] ${e}</span>`;
+        }
+        
+        // Test message signing
+        const msgSig = sign_message(wallet.private_key, "Hello, Ethereum!");
+        walletOut.innerHTML += `\n\nMessage signature: ${msgSig}`;
+        
+    } catch (e) {
+        walletOut.innerHTML = `<span class="error">[FAIL] ${e}</span>`;
+    }
+    
+    // Test ABI encoding
+    const abiOut = document.getElementById('abi-output');
+    try {
+        const balanceOfData = encode_balance_of("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+        const transferData = encode_transfer(
+            "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+            "1000000000000000000" // 1 ETH in wei
+        );
+        
+        abiOut.innerHTML = `<span class="success">[OK] ABI encoding works</span>
+balanceOf(vitalik.eth): ${toHex(balanceOfData)}
+transfer(vitalik.eth, 1 ETH): ${toHex(transferData)}
+
+keccak256("hello"): ${toHex(keccak256(new TextEncoder().encode("hello")))}`;
+    } catch (e) {
+        abiOut.innerHTML = `<span class="error">[FAIL] ${e}</span>`;
+    }
+    
+    // Test unit formatting
+    const unitsOut = document.getElementById('units-output');
+    try {
+        const weiValue = "1234567890123456789";
+        const ethFormatted = format_units(weiValue, 18);
+        const usdcValue = "1234567890";
+        const usdcFormatted = format_units(usdcValue, 6);
+        
+        const parsedEth = parse_units("1.5", 18);
+        const parsedUsdc = parse_units("100.50", 6);
+        
+        unitsOut.innerHTML = `<span class="success">[OK] Unit formatting works</span>
+${weiValue} wei = ${ethFormatted} ETH
+${usdcValue} raw = ${usdcFormatted} USDC
+
+parse_units("1.5", 18) = ${parsedEth}
+parse_units("100.50", 6) = ${parsedUsdc}`;
+    } catch (e) {
+        unitsOut.innerHTML = `<span class="error">[FAIL] ${e}</span>`;
+    }
+}
+
+run();
+</script>
+</body>
+</html>
