@@ -22,7 +22,7 @@ pub enum ServerError {
         actual_value: String,
     },
 
-    #[error("PIR params version mismatch: CRS was generated with v{crs_version}, but server expects v{expected_version}. Regenerate CRS/DB with lane-builder.")]
+    #[error("PIR params version mismatch for {lane} lane: CRS was generated with v{crs_version}, but server expects v{expected_version}. Regenerate CRS/DB with lane-builder.")]
     ParamsVersionMismatch {
         crs_version: u16,
         expected_version: u16,

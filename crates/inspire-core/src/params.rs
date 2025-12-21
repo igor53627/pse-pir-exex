@@ -122,7 +122,16 @@ impl CrsMetadata {
     }
 
     /// Validate metadata against current version
+    ///
+    /// Checks both that the version matches `PIR_PARAMS_VERSION` and that the
+    /// metadata fields are internally consistent.
     pub fn validate(&self) -> Result<(), ParamsVersionError> {
+        if self.pir_params_version != self.pir_params.version {
+            return Err(ParamsVersionError::VersionMismatch {
+                expected: self.pir_params_version,
+                actual: self.pir_params.version,
+            });
+        }
         self.pir_params.validate()
     }
 
