@@ -87,6 +87,13 @@ fn main() -> Result<()> {
             return Err(eyre::eyre!("Failed to create MDBX environment: {}", rc));
         }
 
+        // Reth has 31+ named tables, set maxdbs before opening
+        let rc = mdbx_env_set_maxdbs(env, 64);
+        if rc != MDBX_SUCCESS {
+            mdbx_env_close(env);
+            return Err(eyre::eyre!("Failed to set maxdbs: {}", rc));
+        }
+
         let db_path_str = args.db_path.to_string_lossy();
         let path_cstr = CString::new(db_path_str.as_ref())?;
 
