@@ -28,6 +28,8 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
 
 [[test]]
 name = "e2e"
@@ -36,6 +38,10 @@ path = "tests/e2e.rs"
 [[test]]
 name = "exex_integration"
 path = "tests/exex_integration.rs"
+
+[[test]]
+name = "server_e2e"
+path = "tests/server_e2e.rs"
 
 [[example]]
 name = "benchmark_seed_expansion"

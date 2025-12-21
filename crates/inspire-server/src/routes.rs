@@ -278,11 +278,11 @@ pub fn create_public_router_with_metrics(
         .route("/health", get(health))
         .route("/live", get(live))
         .route("/info", get(info))
-        .route("/crs/{lane}", get(get_crs))
-        .route("/query/{lane}", post(query))
-        .route("/query/{lane}/binary", post(query_binary))
-        .route("/query/{lane}/seeded", post(query_seeded))
-        .route("/query/{lane}/seeded/binary", post(query_seeded_binary))
+        .route("/crs/:lane", get(get_crs))
+        .route("/query/:lane", post(query))
+        .route("/query/:lane/binary", post(query_binary))
+        .route("/query/:lane/seeded", post(query_seeded))
+        .route("/query/:lane/seeded/binary", post(query_seeded_binary))
         .with_state(state);
 
     if let Some(handle) = prometheus_handle {
@@ -317,11 +317,11 @@ pub fn create_router_with_metrics(
         .route("/health", get(health))
         .route("/live", get(live))
         .route("/info", get(info))
-        .route("/crs/{lane}", get(get_crs))
-        .route("/query/{lane}", post(query))
-        .route("/query/{lane}/binary", post(query_binary))
-        .route("/query/{lane}/seeded", post(query_seeded))
-        .route("/query/{lane}/seeded/binary", post(query_seeded_binary))
+        .route("/crs/:lane", get(get_crs))
+        .route("/query/:lane", post(query))
+        .route("/query/:lane/binary", post(query_binary))
+        .route("/query/:lane/seeded", post(query_seeded))
+        .route("/query/:lane/seeded/binary", post(query_seeded_binary))
         .route("/admin/reload", post(admin_reload))
         .with_state(state);
 

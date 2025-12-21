@@ -8,6 +8,10 @@ license.workspace = true
 name = "inspire-server"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "loadtest"
+path = "src/bin/loadtest.rs"
+
 [dependencies]
 inspire-core = { path = "../inspire-core" }
 inspire-pir = { workspace = true }
@@ -24,3 +28,5 @@ arc-swap = { workspace = true }
 tower = { version = "0.5", features = ["limit"] }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+clap = { workspace = true }
+reqwest = { workspace = true }

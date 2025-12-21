@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Admin Network Isolation** (#40): Admin endpoints on separate 127.0.0.1 listener
   - **WASM Client Security** (#41): SecureSecretKey with zeroize, WebCrypto CSPRNG check
   - **Prometheus Observability** (#43): `/metrics`, `/health`, `/live` endpoints
+  - **Testing Infrastructure** (#44): E2E tests, load testing, reload safety tests
+
+- Testing infrastructure for E2E and load testing (#44)
+  - `TestHarness` helper for spinning up test servers with PIR databases
+  - Happy path tests: hot/cold lane queries, CRS fetching, server info
+  - Error handling tests: invalid lane (400), invalid JSON (4xx)
+  - Snapshot consistency tests: verify atomic reads during reloads
+  - Concurrent reload safety tests: queries continue during database swaps
+  - Load test binary (`loadtest`): configurable clients, queries, with-reloads mode
+  - Heavy tests marked `#[ignore]` for nightly/manual runs
 
 - Admin endpoint network isolation and rate limiting (#40)
   - `ServerBuilder::admin_port(port)` to run admin endpoints on separate localhost listener
@@ -108,6 +118,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Browser demo at `web/wallet-core/examples/index.html`
 
 - Seed expansion support for ~50% smaller queries
+
+### Fixed
+
+- Fixed axum 0.7 route path parameter syntax (`/:lane` instead of `/{lane}`)
 
 ### Changed
 

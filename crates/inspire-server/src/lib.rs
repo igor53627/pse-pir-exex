@@ -10,6 +10,7 @@ pub mod error;
 pub mod metrics;
 
 pub use server::{TwoLaneServer, ServerBuilder};
-pub use state::{ServerState, DbSnapshot, SharedState, LaneStats, ReloadResult, LaneData, LaneDatabase};
+pub use state::{ServerState, DbSnapshot, SharedState, LaneStats, ReloadResult, LaneData, LaneDatabase, create_shared_state};
+pub use routes::{create_router, create_router_with_metrics, create_public_router, create_admin_router};
 pub use error::ServerError;
 pub use metrics::init_prometheus_recorder;
