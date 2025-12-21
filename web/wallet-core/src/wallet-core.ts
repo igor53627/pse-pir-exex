@@ -11,6 +11,8 @@ import {
   ChainIdMismatchError,
   PirQueryError,
   AddressNotFoundError,
+  NotInitializedError,
+  SnapshotNotVerifiedError,
   NETWORK_CHAIN_IDS,
   DEFAULT_MIN_CONFIRMATIONS,
   DEFAULT_MAX_STALENESS_BLOCKS,
@@ -49,31 +51,26 @@ export class WalletCore {
     this.initialized = true;
   }
 
-  validateChainId(): Effect.Effect<void, ChainIdMismatchError> {
+  private checkChainIdMismatch(): ChainIdMismatchError | null {
     const metadata = this.pirClient.getMetadata();
-    if (!metadata) {
-      return Effect.void;
-    }
+    if (!metadata) return null;
 
     const expectedChainId = NETWORK_CHAIN_IDS[this.config.network];
     if (expectedChainId !== undefined && metadata.chainId !== expectedChainId) {
-      return Effect.fail(new ChainIdMismatchError({
+      return new ChainIdMismatchError({
         expected: expectedChainId,
         actual: metadata.chainId,
-      }));
+      });
     }
 
-    return Effect.void;
+    return null;
   }
 
   async verifySnapshot(): Promise<VerificationResult> {
     if (!this.initialized) throw new Error('Not initialized');
 
-    const chainIdResult = await Effect.runPromiseExit(this.validateChainId());
-    if (chainIdResult._tag === 'Failure') {
-      const error = chainIdResult.cause;
-      const chainIdError = 'value' in error ? error.value : null;
-      
+    const chainIdError = this.checkChainIdMismatch();
+    if (chainIdError) {
       const result: VerificationResult = {
         valid: false,
         verified: false,
@@ -81,9 +78,7 @@ export class WalletCore {
         expectedBlockHash: this.pirClient.getSnapshotBlockHash(),
         blockNumber: this.pirClient.getSnapshotBlock(),
         status: ['chain_id_mismatch'] as VerificationStatus[],
-        error: chainIdError 
-          ? `Chain ID mismatch: expected ${(chainIdError as ChainIdMismatchError).expected}, got ${(chainIdError as ChainIdMismatchError).actual}`
-          : 'Chain ID mismatch',
+        error: `Chain ID mismatch: expected ${chainIdError.expected}, got ${chainIdError.actual}`,
       };
       this.verificationResult = result;
       this.snapshotVerified = false;
@@ -108,62 +103,54 @@ export class WalletCore {
   getBalanceEffect(
     address: string
   ): Effect.Effect<BalanceResult, BalanceError> {
-    return pipe(
-      Effect.sync(() => {
-        if (!this.initialized) {
-          throw new Error('Not initialized');
-        }
+    const self = this;
+    return Effect.gen(function* () {
+      if (!self.initialized) {
+        return yield* Effect.fail(new NotInitializedError({}));
+      }
 
-        const requireVerified = this.config.requireVerifiedSnapshot ?? DEFAULT_REQUIRE_VERIFIED;
-        if (requireVerified && !this.snapshotVerified) {
-          throw new Error('Snapshot not verified; balances unavailable');
-        }
-      }),
-      Effect.flatMap(() =>
-        Effect.tryPromise({
-          try: () => this.pirClient.queryBalance(address),
-          catch: (error) => new PirQueryError({
-            message: `PIR query failed: ${error}`,
-            cause: error,
-          }),
-        })
-      ),
-      Effect.flatMap((balance) => {
-        if (!balance) {
-          return Effect.fail(new AddressNotFoundError({ address }));
-        }
+      const requireVerified = self.config.requireVerifiedSnapshot ?? DEFAULT_REQUIRE_VERIFIED;
+      if (requireVerified && !self.snapshotVerified) {
+        return yield* Effect.fail(new SnapshotNotVerifiedError({}));
+      }
 
-        return Effect.succeed({
-          address,
-          ethBalance: balance.eth,
-          usdcBalance: balance.usdc,
-          snapshotBlock: this.pirClient.getSnapshotBlock(),
-          verified: this.snapshotVerified,
-          source: 'pir' as const,
-        });
-      })
-    );
+      const balance = yield* Effect.tryPromise({
+        try: () => self.pirClient.queryBalance(address),
+        catch: (error) => new PirQueryError({
+          message: `PIR query failed: ${error}`,
+          cause: error,
+        }),
+      });
+
+      if (!balance) {
+        return yield* Effect.fail(new AddressNotFoundError({ address }));
+      }
+
+      return {
+        address,
+        ethBalance: balance.eth,
+        usdcBalance: balance.usdc,
+        snapshotBlock: self.pirClient.getSnapshotBlock(),
+        verified: self.snapshotVerified,
+        source: 'pir' as const,
+      };
+    });
   }
 
   async getBalance(address: string): Promise<BalanceResult> {
-    if (!this.initialized) throw new Error('Not initialized');
+    if (!this.initialized) {
+      throw new NotInitializedError({});
+    }
 
     const requireVerified = this.config.requireVerifiedSnapshot ?? DEFAULT_REQUIRE_VERIFIED;
     if (requireVerified && !this.snapshotVerified) {
-      throw new Error('Snapshot not verified; balances unavailable');
+      throw new SnapshotNotVerifiedError({});
     }
 
     const balance = await this.pirClient.queryBalance(address);
 
     if (!balance) {
-      return {
-        address,
-        ethBalance: 0n,
-        usdcBalance: 0n,
-        snapshotBlock: this.pirClient.getSnapshotBlock(),
-        verified: this.snapshotVerified,
-        source: 'pir',
-      };
+      throw new AddressNotFoundError({ address });
     }
 
     return {
@@ -217,6 +204,7 @@ export class WalletCore {
     address: string,
     rpcFallback: (address: string) => Promise<{ eth: bigint; usdc: bigint }>
   ): Effect.Effect<BalanceResult, PirQueryError> {
+    const self = this;
     return pipe(
       this.getBalanceEffect(address),
       Effect.catchAll(() =>

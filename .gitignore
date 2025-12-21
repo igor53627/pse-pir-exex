@@ -19,3 +19,5 @@ Thumbs.db
 
 # Logs
 *.log
+web/wallet-core/node_modules/
+web/wallet-core/package-lock.json

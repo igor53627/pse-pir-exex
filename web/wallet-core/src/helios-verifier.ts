@@ -1,4 +1,4 @@
-import { Effect, pipe } from 'effect';
+import { Effect } from 'effect';
 import type { Config, NetworkKind, Network } from '@a16z/helios';
 import { createHeliosProvider, HeliosProvider } from '@a16z/helios';
 
@@ -100,17 +100,29 @@ export class HeliosVerifier {
     HashMismatchError | SnapshotInFutureError | TooRecentError | TooStaleError | NotFinalizedError | HeliosError
   > {
     type VerifyError = HashMismatchError | SnapshotInFutureError | TooRecentError | TooStaleError | NotFinalizedError | HeliosError;
+    const self = this;
 
-    return Effect.gen(this, function* () {
-      const { heliosBlockHash, currentBlock, finalizedBlock } = yield* Effect.tryPromise({
+    return Effect.gen(function* () {
+      const { currentBlock, finalizedBlock } = yield* Effect.tryPromise({
         try: async () => {
-          const [hash, current, finalized] = await Promise.all([
-            this.getBlockHash(expectedBlockNumber),
-            this.getCurrentBlock(),
-            this.getFinalizedBlock(),
+          const [current, finalized] = await Promise.all([
+            self.getCurrentBlock(),
+            self.getFinalizedBlock(),
           ]);
-          return { heliosBlockHash: hash, currentBlock: current, finalizedBlock: finalized };
+          return { currentBlock: current, finalizedBlock: finalized };
         },
+        catch: (error): VerifyError => new HeliosError({ cause: error }),
+      });
+
+      if (expectedBlockNumber > currentBlock) {
+        return yield* Effect.fail<VerifyError>(new SnapshotInFutureError({
+          snapshotBlock: expectedBlockNumber,
+          currentBlock,
+        }));
+      }
+
+      const heliosBlockHash = yield* Effect.tryPromise({
+        try: () => self.getBlockHash(expectedBlockNumber),
         catch: (error): VerifyError => new HeliosError({ cause: error }),
       });
 
@@ -127,24 +139,17 @@ export class HeliosVerifier {
         }));
       }
 
-      if (expectedBlockNumber > currentBlock) {
-        return yield* Effect.fail<VerifyError>(new SnapshotInFutureError({
-          snapshotBlock: expectedBlockNumber,
-          currentBlock,
-        }));
-      }
-
-      if (depth < BigInt(this.minConfirmations)) {
+      if (depth < BigInt(self.minConfirmations)) {
         return yield* Effect.fail<VerifyError>(new TooRecentError({
           depth,
-          minRequired: this.minConfirmations,
+          minRequired: self.minConfirmations,
         }));
       }
 
-      if (depth > BigInt(this.maxStaleness)) {
+      if (depth > BigInt(self.maxStaleness)) {
         return yield* Effect.fail<VerifyError>(new TooStaleError({
           depth,
-          maxAllowed: this.maxStaleness,
+          maxAllowed: self.maxStaleness,
         }));
       }
 
@@ -176,15 +181,17 @@ export class HeliosVerifier {
     expectedBlockHash: string
   ): Promise<VerificationResult> {
     const result = await Effect.runPromise(
-      pipe(
+      Effect.catchAll(
         this.verifySnapshotEffect(expectedBlockNumber, expectedBlockHash),
-        Effect.catchAll((error) => {
+        (error) => {
           const statuses: VerificationStatus[] = [];
           let errorMessage: string | undefined;
+          let actualHash = '';
 
           if (error._tag === 'HashMismatchError') {
             statuses.push('hash_mismatch');
             errorMessage = `Hash mismatch: expected ${error.expected}, got ${error.actual}`;
+            actualHash = error.actual;
           } else if (error._tag === 'SnapshotInFutureError') {
             statuses.push('snapshot_in_future');
             errorMessage = `Snapshot block ${error.snapshotBlock} is in the future (current: ${error.currentBlock})`;
@@ -203,9 +210,9 @@ export class HeliosVerifier {
           }
 
           const failedResult: VerificationResult = {
-            valid: error._tag !== 'HashMismatchError',
+            valid: error._tag !== 'HashMismatchError' && error._tag !== 'HeliosError',
             verified: false,
-            heliosBlockHash: '',
+            heliosBlockHash: actualHash,
             expectedBlockHash: expectedBlockHash.toLowerCase(),
             blockNumber: expectedBlockNumber,
             status: statuses,
@@ -213,7 +220,7 @@ export class HeliosVerifier {
           };
 
           return Effect.succeed(failedResult);
-        })
+        }
       )
     );
 

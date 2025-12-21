@@ -6,9 +6,12 @@ import {
   TooStaleError,
   NotFinalizedError,
   ChainIdMismatchError,
+  NotInitializedError,
+  SnapshotNotVerifiedError,
   NETWORK_CHAIN_IDS,
   DEFAULT_MIN_CONFIRMATIONS,
   DEFAULT_MAX_STALENESS_BLOCKS,
+  DEFAULT_REQUIRE_VERIFIED,
 } from './types.js';
 
 describe('Error Types', () => {
@@ -79,6 +82,18 @@ describe('Error Types', () => {
     expect(error.expected).toBe(1);
     expect(error.actual).toBe(11155111);
   });
+
+  it('should create NotInitializedError with correct tag', () => {
+    const error = new NotInitializedError({});
+
+    expect(error._tag).toBe('NotInitializedError');
+  });
+
+  it('should create SnapshotNotVerifiedError with correct tag', () => {
+    const error = new SnapshotNotVerifiedError({});
+
+    expect(error._tag).toBe('SnapshotNotVerifiedError');
+  });
 });
 
 describe('Constants', () => {
@@ -91,5 +106,6 @@ describe('Constants', () => {
   it('should have correct default values', () => {
     expect(DEFAULT_MIN_CONFIRMATIONS).toBe(64);
     expect(DEFAULT_MAX_STALENESS_BLOCKS).toBe(900);
+    expect(DEFAULT_REQUIRE_VERIFIED).toBe(true);
   });
 });
