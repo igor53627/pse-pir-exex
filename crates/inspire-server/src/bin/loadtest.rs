@@ -170,7 +170,10 @@ async fn run_client(
     stats: Arc<Stats>,
     semaphore: Arc<Semaphore>,
 ) {
-    let http = Client::new();
+    let http = Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .expect("HTTP client build");
 
     for q in 0..queries {
         let _permit = semaphore.acquire().await.unwrap();
@@ -216,7 +219,10 @@ async fn run_client(
 }
 
 async fn run_reloader(server_url: String, interval: Duration, stop: Arc<AtomicU64>) {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("HTTP client build");
     let mut reload_count = 0u64;
 
     while stop.load(Ordering::Relaxed) == 0 {
