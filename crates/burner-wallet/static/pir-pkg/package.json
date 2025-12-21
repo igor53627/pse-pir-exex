@@ -4,6 +4,10 @@
   "description": "WASM PIR client for browser-based private queries",
   "version": "0.1.0",
   "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/igor53627/inspire-exex"
+  },
   "files": [
     "inspire_client_wasm_bg.wasm",
     "inspire_client_wasm.js",
