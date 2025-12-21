@@ -95,7 +95,7 @@ pub fn generate_wallet() -> Result<String, JsError> {
     let signer = PrivateKeySigner::random();
     let info = WalletInfo {
         private_key: to_hex(signer.to_bytes().as_slice()),
-        address: format!("{:?}", signer.address()),
+        address: signer.address().to_string(),
     };
     serde_json::to_string(&info).map_err(|e| JsError::new(&format!("{}", e)))
 }
@@ -103,7 +103,7 @@ pub fn generate_wallet() -> Result<String, JsError> {
 #[wasm_bindgen]
 pub fn get_address(private_key: &str) -> Result<String, JsError> {
     let signer = get_signer(private_key)?;
-    Ok(format!("{:?}", signer.address()))
+    Ok(signer.address().to_string())
 }
 
 #[wasm_bindgen]
@@ -135,8 +135,9 @@ pub fn sign_authorization(
     let s_bytes: [u8; 32] = signed.s().to_be_bytes();
     
     let result = SignedAuthorizationResult {
-        chain_id: signed.chain_id().try_into().unwrap_or(0),
-        address: format!("{:?}", signed.address()),
+        chain_id: signed.chain_id().try_into()
+            .map_err(|_| JsError::new("Chain ID overflow"))?,
+        address: signed.address().to_string(),
         nonce: signed.nonce(),
         y_parity: signed.y_parity(),
         r: to_hex(&r_bytes),
@@ -202,7 +203,7 @@ pub fn keccak256(data: &[u8]) -> Vec<u8> {
 pub fn parse_address(address: &str) -> Result<String, JsError> {
     let addr: Address = address.parse()
         .map_err(|e| JsError::new(&format!("Invalid address: {}", e)))?;
-    Ok(format!("{:?}", addr))
+    Ok(addr.to_string())
 }
 
 #[wasm_bindgen]
