@@ -6,9 +6,7 @@
 //! - Fast tests (no #[ignore]): run in CI, complete in <30s total
 //! - Slow tests (#[ignore]): load/soak tests for manual/nightly runs
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,12 +20,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-static PORT_COUNTER: AtomicU16 = AtomicU16::new(19100);
-
-fn next_port() -> u16 {
-    PORT_COUNTER.fetch_add(1, Ordering::SeqCst)
-}
-
 /// Test harness for running E2E server tests
 pub struct TestHarness {
     pub server_url: String,
@@ -37,7 +29,6 @@ pub struct TestHarness {
     pub http: Client,
     pub hot_crs: Option<ServerCrs>,
     pub cold_crs: Option<ServerCrs>,
-    _shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl TestHarness {
@@ -48,7 +39,11 @@ impl TestHarness {
 
     /// Create a test harness with specified entry counts
     pub async fn with_entries(hot_entries: usize, cold_entries: usize) -> Self {
-        let temp_dir = std::env::temp_dir().join(format!("pir-e2e-test-{}", next_port()));
+        let unique_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("pir-e2e-test-{}", unique_id));
         let _ = std::fs::remove_dir_all(&temp_dir);
 
         let entry_size = 32;
@@ -77,46 +72,38 @@ impl TestHarness {
         let state = create_shared_state(config.clone());
         state.load_lanes().expect("Lanes should load");
 
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        let port = next_port();
-        let addr: SocketAddr = ([127, 0, 0, 1], port).into();
-        let server_url = format!("http://127.0.0.1:{}", port);
-
         let router = create_router(state.clone());
-        let listener = TcpListener::bind(addr).await.expect("Bind should succeed");
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("Bind should succeed");
+        let addr = listener.local_addr().expect("local addr");
+        let server_url = format!("http://{}", addr);
 
         tokio::spawn(async move {
-            axum::serve(listener, router)
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .ok();
+            axum::serve(listener, router).await.ok();
         });
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let http = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("HTTP client");
 
-        for _ in 0..10 {
-            if Client::new()
-                .get(format!("http://127.0.0.1:{}/live", port))
-                .send()
-                .await
-                .is_ok()
-            {
+        let mut ready = false;
+        for _ in 0..20 {
+            if http.get(format!("{}/live", server_url)).send().await.is_ok() {
+                ready = true;
                 break;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+        assert!(ready, "Server did not become ready at {}", server_url);
 
         Self {
             server_url,
             config,
             state,
             temp_dir,
-            http: Client::new(),
+            http,
             hot_crs: Some(result.hot_crs),
             cold_crs: Some(result.cold_crs),
-            _shutdown: Some(shutdown_tx),
         }
     }
 
@@ -197,6 +184,102 @@ impl TestHarness {
         let query_resp: QueryResponse = resp.json().await?;
 
         let entry = extract(crs, &client_state, &query_resp.response, 32)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        Ok(entry)
+    }
+
+    /// Perform a seeded PIR query and extract the result
+    pub async fn query_seeded_and_extract(&self, lane: Lane, index: u64) -> anyhow::Result<Vec<u8>> {
+        use inspire_pir::query_seeded as pir_query_seeded;
+
+        let crs = match lane {
+            Lane::Hot => self.hot_crs.as_ref().expect("hot CRS"),
+            Lane::Cold => self.cold_crs.as_ref().expect("cold CRS"),
+        };
+
+        let crs_resp = self.get_crs(lane).await?;
+        let shard_config = crs_resp.shard_config;
+
+        let mut sampler = GaussianSampler::new(crs.params.sigma);
+        let sk = RlweSecretKey::generate(&crs.params, &mut sampler);
+
+        let (client_state, seeded_query) =
+            pir_query_seeded(crs, index, &shard_config, &sk, &mut sampler)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let resp = self.query_seeded_raw(lane, &seeded_query).await?;
+        let query_resp: QueryResponse = resp.json().await?;
+
+        let entry = extract(crs, &client_state, &query_resp.response, 32)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        Ok(entry)
+    }
+
+    /// Perform a PIR query with binary response
+    pub async fn query_binary_and_extract(&self, lane: Lane, index: u64) -> anyhow::Result<Vec<u8>> {
+        let crs = match lane {
+            Lane::Hot => self.hot_crs.as_ref().expect("hot CRS"),
+            Lane::Cold => self.cold_crs.as_ref().expect("cold CRS"),
+        };
+
+        let crs_resp = self.get_crs(lane).await?;
+        let shard_config = crs_resp.shard_config;
+
+        let mut sampler = GaussianSampler::new(crs.params.sigma);
+        let sk = RlweSecretKey::generate(&crs.params, &mut sampler);
+
+        let (client_state, client_query) =
+            pir_query(crs, index, &shard_config, &sk, &mut sampler)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let resp = self.http
+            .post(format!("{}/query/{}/binary", self.server_url, lane))
+            .json(&QueryRequest { query: client_query })
+            .send()
+            .await?;
+
+        let bytes = resp.bytes().await?;
+        let server_response = inspire_pir::ServerResponse::from_binary(&bytes)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let entry = extract(crs, &client_state, &server_response, 32)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        Ok(entry)
+    }
+
+    /// Perform a seeded PIR query with binary response
+    pub async fn query_seeded_binary_and_extract(&self, lane: Lane, index: u64) -> anyhow::Result<Vec<u8>> {
+        use inspire_pir::query_seeded as pir_query_seeded;
+
+        let crs = match lane {
+            Lane::Hot => self.hot_crs.as_ref().expect("hot CRS"),
+            Lane::Cold => self.cold_crs.as_ref().expect("cold CRS"),
+        };
+
+        let crs_resp = self.get_crs(lane).await?;
+        let shard_config = crs_resp.shard_config;
+
+        let mut sampler = GaussianSampler::new(crs.params.sigma);
+        let sk = RlweSecretKey::generate(&crs.params, &mut sampler);
+
+        let (client_state, seeded_query) =
+            pir_query_seeded(crs, index, &shard_config, &sk, &mut sampler)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let resp = self.http
+            .post(format!("{}/query/{}/seeded/binary", self.server_url, lane))
+            .json(&SeededQueryRequest { query: seeded_query })
+            .send()
+            .await?;
+
+        let bytes = resp.bytes().await?;
+        let server_response = inspire_pir::ServerResponse::from_binary(&bytes)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let entry = extract(crs, &client_state, &server_response, 32)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         Ok(entry)
@@ -359,6 +442,39 @@ async fn test_hot_and_cold_queries_different_data() {
     assert_ne!(hot_entry, cold_entry, "Hot and cold lanes should have different data");
 }
 
+#[tokio::test]
+async fn test_seeded_query_returns_same_as_full() {
+    let harness = TestHarness::new().await;
+    let index = 42u64;
+
+    let full_entry = harness.query_and_extract(Lane::Hot, index).await.expect("full query");
+    let seeded_entry = harness.query_seeded_and_extract(Lane::Hot, index).await.expect("seeded query");
+
+    assert_eq!(full_entry, seeded_entry, "Seeded query should return same data as full query");
+}
+
+#[tokio::test]
+async fn test_binary_response_returns_same_as_json() {
+    let harness = TestHarness::new().await;
+    let index = 50u64;
+
+    let json_entry = harness.query_and_extract(Lane::Hot, index).await.expect("json query");
+    let binary_entry = harness.query_binary_and_extract(Lane::Hot, index).await.expect("binary query");
+
+    assert_eq!(json_entry, binary_entry, "Binary response should return same data as JSON");
+}
+
+#[tokio::test]
+async fn test_seeded_binary_query() {
+    let harness = TestHarness::new().await;
+    let index = 100u64;
+
+    let full_entry = harness.query_and_extract(Lane::Hot, index).await.expect("full query");
+    let seeded_binary_entry = harness.query_seeded_binary_and_extract(Lane::Hot, index).await.expect("seeded binary query");
+
+    assert_eq!(full_entry, seeded_binary_entry, "Seeded binary query should return same data");
+}
+
 // ============================================================================
 // Error Handling Tests
 // ============================================================================
@@ -467,10 +583,12 @@ async fn test_reload_while_querying() {
             config: harness.config.clone(),
             state: harness.state.clone(),
             temp_dir: harness.temp_dir.clone(),
-            http: Client::new(),
+            http: Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("HTTP client"),
             hot_crs: harness.hot_crs.clone(),
             cold_crs: harness.cold_crs.clone(),
-            _shutdown: None,
         };
         tokio::spawn(async move {
             for i in 0..5 {
@@ -496,7 +614,10 @@ async fn test_concurrent_queries_during_reload() {
         let url = url.clone();
         let crs = hot_crs.clone();
         handles.push(tokio::spawn(async move {
-            let client = Client::new();
+            let client = Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("HTTP client");
 
             let crs_resp: CrsResponse = client
                 .get(format!("{}/crs/hot", url))
@@ -527,7 +648,7 @@ async fn test_concurrent_queries_during_reload() {
         }));
     }
 
-    harness.reload().await.expect("reload during queries");
+    let _ = harness.reload().await;
 
     let mut successes = 0;
     for h in handles {

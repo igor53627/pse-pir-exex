@@ -130,10 +130,16 @@ impl Stats {
             0.0
         };
 
+        let success_pct = if total > 0 {
+            (success as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+
         println!("\n=== Load Test Results ===");
         println!("Duration:     {:?}", duration);
         println!("Total:        {} queries", total);
-        println!("Successful:   {} ({:.1}%)", success, (success as f64 / total as f64) * 100.0);
+        println!("Successful:   {} ({:.1}%)", success, success_pct);
         println!("Failed:       {}", failed);
         println!("Throughput:   {:.1} queries/sec", qps);
         println!("\nLatency (successful queries):");
