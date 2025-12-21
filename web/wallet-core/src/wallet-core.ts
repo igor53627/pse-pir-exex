@@ -138,24 +138,19 @@ export class WalletCore {
   }
 
   async getBalance(address: string): Promise<BalanceResult> {
-    if (!this.initialized) throw new Error('Not initialized');
+    if (!this.initialized) {
+      throw new NotInitializedError({});
+    }
 
     const requireVerified = this.config.requireVerifiedSnapshot ?? DEFAULT_REQUIRE_VERIFIED;
     if (requireVerified && !this.snapshotVerified) {
-      throw new Error('Snapshot not verified; balances unavailable');
+      throw new SnapshotNotVerifiedError({});
     }
 
     const balance = await this.pirClient.queryBalance(address);
 
     if (!balance) {
-      return {
-        address,
-        ethBalance: 0n,
-        usdcBalance: 0n,
-        snapshotBlock: this.pirClient.getSnapshotBlock(),
-        verified: this.snapshotVerified,
-        source: 'pir',
-      };
+      throw new AddressNotFoundError({ address });
     }
 
     return {

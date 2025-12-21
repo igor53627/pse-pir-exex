@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Snapshot Freshness & Helios Verification (#42)
+- Snapshot Freshness & Helios Verification (#42, #49)
   - `WalletCoreConfig` policy knobs for snapshot verification:
     - `minConfirmationsForSafety` (default: 64 blocks)
     - `maxSnapshotStalenessBlocks` (default: 900 blocks / ~3h)
@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `getBalanceEffect()` and `getBalanceWithFallbackEffect()` Effect APIs
   - Unit tests for verification error types and constants
   - Uses [Effect](https://effect.website/) for typed error handling
+
+### Changed
+
+- **BREAKING**: `getBalance()` now throws `AddressNotFoundError` when address is not in PIR database (#49)
+  - Previously returned zero balances, which was semantically incorrect
+  - Use `getBalanceWithFallback()` for the "always returns a result" behavior
 
 - Production readiness features (#38)
   - **PIR Parameter Versioning** (#39): Version checks prevent client/server crypto mismatches
