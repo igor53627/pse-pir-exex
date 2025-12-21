@@ -195,12 +195,24 @@ unsafe fn extract_storage_for_pir(args: &Args) -> Result<u64> {
         let address = key_bytes;
         let slot = &val_bytes[0..32];
 
-        // Decode the storage value from RLP
-        // The value is an RLP-encoded U256. For simplicity, we'll handle common cases:
-        // - Single byte 0x00-0x7f: value is the byte itself
-        // - 0x80: empty value (0)
-        // - 0x81-0xb7: short string (1-55 bytes)
-        let storage_value = decode_rlp_u256(&val_bytes[32..])?;
+        // Decode the storage value from the remaining bytes after slot
+        // Reth stores U256 values in a compact format, not necessarily RLP
+        // Let me first check if it's just raw bytes padded
+        let value_part = &val_bytes[32..];
+        
+        // Debug: print first few entries to understand format
+        if count < 10 {
+            tracing::info!(
+                "Entry {}: key_len={}, val_len={}, value_part_len={}, value_hex={}",
+                count,
+                key_bytes.len(),
+                val_bytes.len(),
+                value_part.len(),
+                hex::encode(value_part)
+            );
+        }
+        
+        let storage_value = decode_storage_value(value_part)?;
 
         // Write 32-byte storage value to database.bin
         db_writer.write_all(&storage_value)?;
@@ -253,62 +265,24 @@ unsafe fn extract_storage_for_pir(args: &Args) -> Result<u64> {
     Ok(count)
 }
 
-/// Decode RLP-encoded U256 to 32-byte big-endian array
-fn decode_rlp_u256(data: &[u8]) -> Result<[u8; 32]> {
-    if data.is_empty() {
-        return Ok([0u8; 32]);
-    }
-
-    let first = data[0];
+/// Decode storage value to 32-byte big-endian array
+/// Reth uses compact encoding for U256 values (variable length, big-endian, no prefix)
+fn decode_storage_value(data: &[u8]) -> Result<[u8; 32]> {
     let mut result = [0u8; 32];
-
-    if first == 0x80 {
-        // Empty string = 0
+    
+    if data.is_empty() {
         return Ok(result);
     }
-
-    if first < 0x80 {
-        // Single byte value
-        result[31] = first;
-        return Ok(result);
+    
+    // Reth stores U256 values as compact big-endian bytes without length prefix
+    // The value is simply the minimal-length big-endian representation
+    if data.len() > 32 {
+        return Err(eyre::eyre!("Storage value too large: {} bytes", data.len()));
     }
-
-    if first <= 0xb7 {
-        // Short string: length is (first - 0x80)
-        let len = (first - 0x80) as usize;
-        if data.len() < 1 + len {
-            return Err(eyre::eyre!("RLP truncated: expected {} bytes", len));
-        }
-        if len > 32 {
-            return Err(eyre::eyre!("RLP value too large: {} bytes", len));
-        }
-        // Copy to right-aligned position in result
-        let start = 32 - len;
-        result[start..].copy_from_slice(&data[1..1 + len]);
-        return Ok(result);
-    }
-
-    if first <= 0xbf {
-        // Long string: next (first - 0xb7) bytes are the length
-        let len_of_len = (first - 0xb7) as usize;
-        if data.len() < 1 + len_of_len {
-            return Err(eyre::eyre!("RLP length truncated"));
-        }
-        let mut len = 0usize;
-        for i in 0..len_of_len {
-            len = (len << 8) | (data[1 + i] as usize);
-        }
-        if data.len() < 1 + len_of_len + len {
-            return Err(eyre::eyre!("RLP data truncated"));
-        }
-        if len > 32 {
-            return Err(eyre::eyre!("RLP value too large: {} bytes", len));
-        }
-        let start = 32 - len;
-        result[start..].copy_from_slice(&data[1 + len_of_len..1 + len_of_len + len]);
-        return Ok(result);
-    }
-
-    // List types (0xc0-0xff) shouldn't appear for storage values
-    Err(eyre::eyre!("Unexpected RLP list type: 0x{:02x}", first))
+    
+    // Copy to right-aligned position (big-endian padding on left with zeros)
+    let start = 32 - data.len();
+    result[start..].copy_from_slice(data);
+    
+    Ok(result)
 }
