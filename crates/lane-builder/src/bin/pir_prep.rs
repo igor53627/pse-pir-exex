@@ -194,11 +194,13 @@ unsafe fn extract_storage_for_pir(args: &Args) -> Result<u64> {
 
         // Value should be at least 32 bytes (slot)
         // Value can be exactly 32 bytes if storage value is 0 (empty)
+        // val_len=0 can occur with DUPSORT tables as cursor navigation artifacts
         if val_bytes.len() < 32 {
-            if skipped < 10 {
+            // Silent skip for 0-length values (DUPSORT cursor artifacts)
+            // Only warn for unexpected non-zero lengths
+            if val_bytes.len() > 0 && skipped < 10 {
                 tracing::warn!(
-                    "Skipping entry {}: unexpected val_len={} (expected >= 32)",
-                    count + skipped,
+                    "Skipping entry: unexpected val_len={} (expected 0 or >= 32)",
                     val_bytes.len()
                 );
             }
