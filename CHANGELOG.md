@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Admin endpoint network isolation and rate limiting (#40)
+  - `ServerBuilder::admin_port(port)` to run admin endpoints on separate localhost listener
+  - Admin endpoints (`/admin/reload`, `/admin/health`) bound to 127.0.0.1 only
+  - Rate limiting: 1 request/second on admin endpoints (returns 429 on excess)
+  - Public router excludes admin routes when admin_port is configured
+  - CLI: `inspire-server config.json 3000 3001` runs public on :3000, admin on 127.0.0.1:3001
+  - Backwards compatible: omit admin_port for combined single-listener mode
+
 - `burner-wallet` crate: Axum+Askama server-rendered wallet UI (#35)
   - Full Rust/WASM stack (no React/Next.js)
   - Generate/import burner wallet with localStorage persistence

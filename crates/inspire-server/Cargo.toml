@@ -21,3 +21,4 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 arc-swap = { workspace = true }
+tower = { version = "0.5", features = ["limit"] }

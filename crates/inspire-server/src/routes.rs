@@ -205,7 +205,28 @@ fn parse_lane(s: &str) -> Result<Lane> {
     }
 }
 
-/// Create the router with all routes
+/// Create the public router (exposed to the internet)
+pub fn create_public_router(state: SharedState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/info", get(info))
+        .route("/crs/{lane}", get(get_crs))
+        .route("/query/{lane}", post(query))
+        .route("/query/{lane}/binary", post(query_binary))
+        .route("/query/{lane}/seeded", post(query_seeded))
+        .route("/query/{lane}/seeded/binary", post(query_seeded_binary))
+        .with_state(state)
+}
+
+/// Create the admin router (bound to localhost only)
+pub fn create_admin_router(state: SharedState) -> Router {
+    Router::new()
+        .route("/admin/reload", post(admin_reload))
+        .route("/admin/health", get(health))
+        .with_state(state)
+}
+
+/// Create combined router (for backwards compatibility / testing)
 pub fn create_router(state: SharedState) -> Router {
     Router::new()
         .route("/health", get(health))
