@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Snapshot Freshness & Helios Verification (#42)
+  - `WalletCoreConfig` policy knobs for snapshot verification:
+    - `minConfirmationsForSafety` (default: 64 blocks)
+    - `maxSnapshotStalenessBlocks` (default: 900 blocks / ~3h)
+    - `requireVerifiedSnapshot` (default: true for production)
+  - Enhanced `VerificationResult` with rich status codes:
+    - `hash_mismatch`, `snapshot_in_future`, `too_recent_reorg_risk`
+    - `too_stale`, `not_finalized`, `chain_id_mismatch`, `helios_error`
+  - Effect-based typed errors for all verification failure modes
+  - Chain ID validation against expected network
+  - Finality and staleness checks in `verifySnapshot()`
+  - `getBalanceWithFallback()` API with `source: 'pir' | 'rpc'` tracking
+  - `getBalanceEffect()` and `getBalanceWithFallbackEffect()` Effect APIs
+  - Unit tests for verification error types and constants
+  - Uses [Effect](https://effect.website/) for typed error handling
+
 - Production readiness features (#38)
   - **PIR Parameter Versioning** (#39): Version checks prevent client/server crypto mismatches
   - **Admin Network Isolation** (#40): Admin endpoints on separate 127.0.0.1 listener

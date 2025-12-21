@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@a16z/helios": "^0.10.2",
+    "effect": "^3.12.0",
     "inspire-client-wasm": "file:../../crates/inspire-client-wasm/pkg"
   },
   "devDependencies": {

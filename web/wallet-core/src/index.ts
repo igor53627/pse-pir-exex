@@ -6,5 +6,24 @@ export type {
   BalanceResult,
   BalanceMetadata,
   VerificationResult,
+  VerificationStatus,
+  BalanceError,
+  SnapshotError,
 } from './types.js';
-export { BALANCE_RECORD_SIZE } from './types.js';
+export {
+  BALANCE_RECORD_SIZE,
+  NETWORK_CHAIN_IDS,
+  DEFAULT_MIN_CONFIRMATIONS,
+  DEFAULT_MAX_STALENESS_BLOCKS,
+  DEFAULT_REQUIRE_VERIFIED,
+  VerificationError,
+  HashMismatchError,
+  SnapshotInFutureError,
+  TooRecentError,
+  TooStaleError,
+  NotFinalizedError,
+  ChainIdMismatchError,
+  HeliosError,
+  PirQueryError,
+  AddressNotFoundError,
+} from './types.js';
