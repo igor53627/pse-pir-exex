@@ -71,6 +71,7 @@ impl Default for BalanceRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BalanceDbMetadata {
     pub chain_id: u64,
     pub snapshot_block: u64,
@@ -85,8 +86,8 @@ impl BalanceDbMetadata {
     pub fn find_index(&self, address: &str) -> Option<usize> {
         let normalized = address.to_lowercase();
         self.addresses
-            .binary_search_by(|a| a.to_lowercase().cmp(&normalized))
-            .ok()
+            .iter()
+            .position(|a| a.to_lowercase() == normalized)
     }
 }
 

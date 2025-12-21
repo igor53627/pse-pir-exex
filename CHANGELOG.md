@@ -43,12 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `format_units(value, decimals)` / `parse_units(value, decimals)` - unit conversion
   - Browser test page at `experiments/alloy-wasm/test.html`
 
-### Changed
-
-- Renamed repository and workspace from `pse-inspire-exex` to `inspire-exex`
-
-### Added
-
 - `inspire-client-wasm` crate for browser-based PIR queries (#33)
   - WASM-compatible PIR client using browser fetch API
   - ~247 KB WASM bundle size (optimized with wasm-opt)
@@ -80,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Renamed repository and workspace from `pse-inspire-exex` to `inspire-exex`
+
 - Updated sigma parameter from 3.2 to 6.4 to match InsPIRe paper security parameters
   - Affects `default_params()` and `test_params()` in lane-builder
   - **Breaking**: Existing CRS/DB files must be regenerated with new sigma value
@@ -92,8 +88,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `SeededQueryRequest` type on server
   - `ClientBuilder::seed_expansion(bool)` to enable/disable
   - Seed expansion enabled by default
-
-### Changed
 
 - Updated README to reflect accurate InsPIRe communication costs
   - InsPIRe is O(d) not O(sqrt(N)) - query size is independent of database size

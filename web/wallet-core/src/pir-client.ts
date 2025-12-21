@@ -10,7 +10,6 @@ async function ensureWasmLoaded(): Promise<typeof import('inspire-client-wasm')>
     wasmInit = (async () => {
       const wasm = await import('inspire-client-wasm');
       await wasm.default();
-      wasm.init();
       wasmModule = wasm;
     })();
   }

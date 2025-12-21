@@ -224,6 +224,9 @@ pub fn parse_units(value: &str, decimals: u8) -> Result<String, JsError> {
 
 mod hex {
     pub fn decode(s: &str) -> Result<Vec<u8>, std::fmt::Error> {
+        if s.len() % 2 != 0 {
+            return Err(std::fmt::Error);
+        }
         (0..s.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| std::fmt::Error))
