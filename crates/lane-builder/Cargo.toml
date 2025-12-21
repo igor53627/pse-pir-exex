@@ -41,6 +41,11 @@ name = "state-dump"
 path = "src/bin/state_dump.rs"
 required-features = ["state-dump"]
 
+[[bin]]
+name = "pir-prep"
+path = "src/bin/pir_prep.rs"
+required-features = ["state-dump"]
+
 [dependencies]
 inspire-core = { path = "../inspire-core" }
 inspire-pir = { workspace = true }
