@@ -8,7 +8,7 @@ use inspire_pir::params::InspireParams;
 use inspire_pir::pir::{query, query_seeded, setup};
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("Seed Expansion Benchmark (pse-inspire-exex)");
+    println!("Seed Expansion Benchmark (inspire-exex)");
     println!("=======================================\n");
 
     let configs = [

@@ -45,6 +45,7 @@ mod manifest;
 mod routing;
 mod indexing;
 mod error;
+mod balance;
 
 pub use lane::Lane;
 pub use config::{TwoLaneConfig, PROTOCOL_VERSION};
@@ -52,6 +53,7 @@ pub use manifest::{HotLaneManifest, HotContract};
 pub use routing::{LaneRouter, QueryTarget, RoutedQuery};
 pub use indexing::{slot_to_offset, hot_index, cold_index};
 pub use error::Error;
+pub use balance::{BalanceRecord, BalanceDbMetadata, BALANCE_RECORD_SIZE};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

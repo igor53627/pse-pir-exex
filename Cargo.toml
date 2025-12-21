@@ -1,5 +1,5 @@
 [package]
-name = "pse-inspire-exex"
+name = "inspire-exex"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,6 +11,8 @@ members = [
     "crates/inspire-client",
     "crates/inspire-client-wasm",
     "crates/lane-builder",
+    "crates/burner-wallet",
+    "crates/alloy-wasm",
 ]
 
 [dependencies]
@@ -51,7 +53,7 @@ path = "examples/benchmark_large.rs"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/igor53627/pse-inspire-exex"
+repository = "https://github.com/igor53627/inspire-exex"
 
 [workspace.dependencies]
 # Use inspire-rs for PIR primitives

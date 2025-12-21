@@ -40,6 +40,7 @@ struct ClientInner {
     secret_key: RlweSecretKey,
     entry_count: u64,
     shard_config: ShardConfig,
+    lane: String,
 }
 
 #[wasm_bindgen]
@@ -84,6 +85,7 @@ impl PirClient {
             secret_key,
             entry_count: crs_resp.entry_count,
             shard_config: crs_resp.shard_config,
+            lane: lane.to_string(),
         });
         
         Ok(())
@@ -117,7 +119,7 @@ impl PirClient {
         console_log!("Sending seeded query...");
         
         let response: QueryResponse = inner.http
-            .post_json("/query/hot/seeded", &SeededQueryRequest { query: seeded_query })
+            .post_json(&format!("/query/{}/seeded", inner.lane), &SeededQueryRequest { query: seeded_query })
             .await
             .map_err(PirError::from)?;
         
@@ -151,7 +153,7 @@ impl PirClient {
         ).map_err(|e| PirError::Pir(e.to_string()))?;
         
         let bytes = inner.http
-            .post_json_binary("/query/hot/seeded/binary", &SeededQueryRequest { query: seeded_query })
+            .post_json_binary(&format!("/query/{}/seeded/binary", inner.lane), &SeededQueryRequest { query: seeded_query })
             .await
             .map_err(PirError::from)?;
         

@@ -1,0 +1,36 @@
+{
+  "name": "@inspire/wallet-core",
+  "version": "0.1.0",
+  "description": "Private balance queries via PIR with Helios verification",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@a16z/helios": "^0.10.2",
+    "inspire-client-wasm": "file:../../crates/inspire-client-wasm/pkg"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "keywords": [
+    "pir",
+    "privacy",
+    "ethereum",
+    "helios",
+    "light-client"
+  ],
+  "license": "MIT"
+}

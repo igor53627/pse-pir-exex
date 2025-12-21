@@ -12,6 +12,8 @@ dev-keys = []
 exex = ["dep:reth-ethereum", "dep:reth-tracing", "dep:eyre", "dep:futures", "dep:clap", "dep:metrics"]
 # Enable gas backfill for data-driven hot lane selection
 backfill = ["dep:alloy-provider", "dep:alloy-rpc-types", "dep:alloy-primitives", "dep:alloy-transport", "dep:futures", "dep:clap", "dep:indicatif"]
+# Enable balance extraction for ETH/USDC hot lane
+balance = ["dep:alloy-provider", "dep:alloy-rpc-types", "dep:alloy-primitives", "dep:alloy-transport", "dep:futures", "dep:clap", "dep:indicatif"]
 
 [[bin]]
 name = "lane-builder"
@@ -26,6 +28,11 @@ required-features = ["exex"]
 name = "lane-backfill"
 path = "src/bin/backfill.rs"
 required-features = ["backfill"]
+
+[[bin]]
+name = "balance-builder"
+path = "src/bin/balance.rs"
+required-features = ["balance"]
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }

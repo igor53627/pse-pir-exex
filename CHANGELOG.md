@@ -9,12 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `burner-wallet` crate: Axum+Askama server-rendered wallet UI (#35)
+  - Full Rust/WASM stack (no React/Next.js)
+  - Generate/import burner wallet with localStorage persistence
+  - EIP-7702 authorization signing for EOA delegation
+  - EIP-7702 transaction sending via `sign_eip7702_tx()` WASM function
+  - Send Transaction UI with gas estimation, authorization inclusion
+  - PIR balance queries via inspire-client-wasm integration
+    - "Connect PIR" button to initialize PIR client
+    - Query balances privately without revealing address
+    - Falls back to RPC if address not in hot lane
+  - Server View panel demonstrating PIR privacy (encrypted vs cleartext)
+  - Helios light client integration for snapshot verification
+  - Tenderly Virtual TestNet integration (Sepolia fork)
+  - Fund test accounts with 10 ETH + 1000 USDC via admin RPC
+  - Real-time ETH/USDC balance display (RPC or PIR modes)
+  - Playwright E2E tests (48 tests covering full flow)
+  - Minimal CSS, no Tailwind
+  - Target: Sepolia testnet (EIP-7702 live after Pectra)
+
+- Moved `alloy-wasm` from experiments/ to crates/ (#35)
+
+- `alloy-wasm` experimental package for browser-based EIP-7702 signing (#35)
+  - Compiles alloy-rs to WASM (wasm32-unknown-unknown target)
+  - ~207 KB WASM bundle (89 KB gzipped)
+  - `generate_wallet()` - create random burner wallet
+  - `get_address(privateKey)` - derive address from private key
+  - `sign_authorization(privateKey, authRequest)` - sign EIP-7702 authorization
+  - `sign_eip7702_tx(privateKey, txRequest)` - build and sign Type 4 transaction
+  - `sign_message(privateKey, message)` - EIP-191 personal sign
+  - `sign_typed_data_hash(privateKey, hash)` - raw hash signing
+  - `encode_balance_of(address)` / `encode_transfer(to, amount)` - ERC20 ABI encoding
+  - `format_units(value, decimals)` / `parse_units(value, decimals)` - unit conversion
+  - Browser test page at `experiments/alloy-wasm/test.html`
+
+### Changed
+
+- Renamed repository and workspace from `pse-inspire-exex` to `inspire-exex`
+
+### Added
+
 - `inspire-client-wasm` crate for browser-based PIR queries (#33)
   - WASM-compatible PIR client using browser fetch API
-  - ~253 KB WASM bundle size
-  - Exports `PirClient` with `init()`, `query()`, `query_binary()` methods
+  - ~247 KB WASM bundle size (optimized with wasm-opt)
+  - Exports `PirClient` with `init(lane)`, `query()`, `query_binary()` methods
+  - Dynamic lane routing (uses lane specified at init time)
   - Uses gloo-net for HTTP requests
   - TypeScript definitions included
+  - Browser smoke test HTML at `examples/index.html`
+
+- ETH/USDC balance hot lane support (#33 Phase 2)
+  - `BalanceRecord` struct (64 bytes: 32 ETH + 32 USDC)
+  - `BalanceDbMetadata` for tracking snapshot block, chain, addresses
+  - `balance-builder` binary for extracting balances at snapshot block
+  - `BalanceExtractor` with concurrent RPC fetching
+  - Network presets: mainnet, holesky, sepolia
+  - Builds binary DB + metadata.json from address list
+
+- `@inspire/wallet-core` TypeScript package (#33 Phase 3+4)
+  - Integrates PIR client (inspire-client-wasm) with Helios light client
+  - `WalletCore` class: unified API for private verified balance queries
+  - `HeliosVerifier`: verify snapshot block hash against canonical chain
+  - `PirBalanceClient`: WASM PIR client wrapper for balance queries
+  - `getBalance(address)` / `getBalances(addresses)` APIs
+  - `verifySnapshot()` for Helios-based block hash verification
+  - Uses `@a16z/helios` npm package (no vendoring needed)
+  - Browser demo at `web/wallet-core/examples/index.html`
 
 - Seed expansion support for ~50% smaller queries
 

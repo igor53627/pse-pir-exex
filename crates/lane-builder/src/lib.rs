@@ -21,6 +21,9 @@ pub mod exex;
 #[cfg(feature = "backfill")]
 pub mod gas_tracker;
 
+#[cfg(feature = "balance")]
+pub mod balance_extractor;
+
 pub use builder::HotLaneBuilder;
 pub use extractor::ContractExtractor;
 pub use hybrid_scorer::{HybridScorer, HybridScorerConfig, ScoredContract, CategoryWeights};
@@ -32,3 +35,6 @@ pub use exex::{lane_updater_exex, LaneUpdaterConfig};
 
 #[cfg(feature = "backfill")]
 pub use gas_tracker::{GasTracker, BackfillConfig, BackfillResult, GasStats};
+
+#[cfg(feature = "balance")]
+pub use balance_extractor::{BalanceExtractor, BalanceExtractorConfig};
