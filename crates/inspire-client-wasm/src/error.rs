@@ -9,6 +9,7 @@ pub enum PirError {
     Pir(String),
     NotInitialized,
     IndexOutOfBounds(u64),
+    VersionMismatch { client: u16, server: u16 },
 }
 
 impl std::fmt::Display for PirError {
@@ -19,6 +20,13 @@ impl std::fmt::Display for PirError {
             PirError::Pir(msg) => write!(f, "PIR error: {}", msg),
             PirError::NotInitialized => write!(f, "Client not initialized"),
             PirError::IndexOutOfBounds(idx) => write!(f, "Index {} out of bounds", idx),
+            PirError::VersionMismatch { client, server } => {
+                write!(
+                    f,
+                    "PIR params version mismatch: client v{}, server v{}. Update client or regenerate server CRS.",
+                    client, server
+                )
+            }
         }
     }
 }

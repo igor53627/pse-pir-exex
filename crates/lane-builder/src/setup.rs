@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use inspire_core::{HotLaneManifest, TwoLaneConfig};
+use inspire_core::{HotLaneManifest, TwoLaneConfig, CrsMetadata, PirParams, PIR_PARAMS_VERSION};
 use inspire_pir::{
     setup as pir_setup,
     InspireParams, SecurityLevel,
@@ -12,6 +12,29 @@ use inspire_pir::{
 };
 use inspire_pir::math::GaussianSampler;
 use inspire_pir::rlwe::RlweSecretKey;
+
+/// Convert InspireParams to PirParams for metadata
+fn to_pir_params(p: &InspireParams) -> PirParams {
+    PirParams {
+        version: PIR_PARAMS_VERSION,
+        ring_dim: p.ring_dim as u32,
+        sigma: p.sigma,
+        q: p.q,
+        p: p.p,
+        gadget_base: p.gadget_base,
+        gadget_len: p.gadget_len,
+    }
+}
+
+/// Get current timestamp in ISO 8601 format
+fn now_iso8601() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs();
+    format!("{}", secs)
+}
 
 /// Result of two-lane setup
 pub struct TwoLaneSetupResult {
@@ -162,6 +185,38 @@ impl TwoLaneSetup {
         save_crs(&cold_crs, &cold_dir.join("crs.json"))?;
         save_db(&cold_db, &cold_dir.join("encoded.json"))?;
 
+        let pir_params = to_pir_params(&self.params);
+        let generated_by = format!("lane-builder {}", env!("CARGO_PKG_VERSION"));
+        let generated_at = now_iso8601();
+
+        let hot_entries = (self.hot_data.len() / self.entry_size) as u64;
+        let cold_entries = (self.cold_data.len() / self.entry_size) as u64;
+
+        let hot_meta = CrsMetadata::new(
+            &pir_params,
+            self.entry_size,
+            hot_entries,
+            "hot",
+            &generated_by,
+            &generated_at,
+        );
+        hot_meta.save(&hot_dir.join("crs.meta.json"))?;
+
+        let cold_meta = CrsMetadata::new(
+            &pir_params,
+            self.entry_size,
+            cold_entries,
+            "cold",
+            &generated_by,
+            &generated_at,
+        );
+        cold_meta.save(&cold_dir.join("crs.meta.json"))?;
+
+        tracing::info!(
+            pir_params_version = PIR_PARAMS_VERSION,
+            "Generated CRS metadata sidecars"
+        );
+
         if let Some(manifest) = &self.manifest {
             manifest.save(&hot_dir.join("manifest.json"))?;
         }
@@ -179,10 +234,7 @@ impl TwoLaneSetup {
         }
 
         let config = TwoLaneConfig::from_base_dir(&self.output_dir)
-            .with_entries(
-                (self.hot_data.len() / self.entry_size) as u64,
-                (self.cold_data.len() / self.entry_size) as u64,
-            )
+            .with_entries(hot_entries, cold_entries)
             .with_hash();
 
         config.save(&self.output_dir.join("config.json"))?;
@@ -277,14 +329,23 @@ mod tests {
         
         assert!(dir.path().join("hot/crs.json").exists());
         assert!(dir.path().join("hot/encoded.json").exists());
+        assert!(dir.path().join("hot/crs.meta.json").exists());
         assert!(dir.path().join("cold/crs.json").exists());
         assert!(dir.path().join("cold/encoded.json").exists());
+        assert!(dir.path().join("cold/crs.meta.json").exists());
         assert!(dir.path().join("config.json").exists());
         // Secret key should NOT be saved by default (security)
         assert!(!dir.path().join("secret_key.json").exists());
         
         assert_eq!(result.config.hot_entries, 256);
         assert_eq!(result.config.cold_entries, 256);
+
+        // Verify CRS metadata content
+        let hot_meta = CrsMetadata::load(dir.path().join("hot/crs.meta.json")).unwrap();
+        assert_eq!(hot_meta.pir_params_version, PIR_PARAMS_VERSION);
+        assert_eq!(hot_meta.entry_count, 256);
+        assert_eq!(hot_meta.lane, "hot");
+        assert!(hot_meta.validate().is_ok());
     }
 
     #[test]

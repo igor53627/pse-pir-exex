@@ -12,10 +12,16 @@ use inspire_pir::{
 use inspire_pir::math::GaussianSampler;
 use inspire_pir::params::ShardConfig;
 use inspire_pir::rlwe::RlweSecretKey;
+use inspire_core::PIR_PARAMS_VERSION;
 
 use crate::console_log;
 use crate::error::PirError;
 use crate::transport::HttpClient;
+
+#[derive(Deserialize)]
+struct ServerInfo {
+    pir_params_version: u16,
+}
 
 #[derive(Deserialize)]
 struct CrsResponse {
@@ -63,6 +69,20 @@ impl PirClient {
     pub async fn init(&mut self, lane: &str) -> Result<(), JsValue> {
         let http = HttpClient::new(self.server_url.clone());
         
+        console_log!("Checking server PIR params version...");
+        let info: ServerInfo = http
+            .get("/info")
+            .await
+            .map_err(PirError::from)?;
+
+        if info.pir_params_version != PIR_PARAMS_VERSION {
+            return Err(PirError::VersionMismatch {
+                client: PIR_PARAMS_VERSION,
+                server: info.pir_params_version,
+            }.into());
+        }
+
+        console_log!("Version check passed: v{}", PIR_PARAMS_VERSION);
         console_log!("Fetching CRS for lane: {}", lane);
         
         let crs_resp: CrsResponse = http

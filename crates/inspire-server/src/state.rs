@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use inspire_core::{HotLaneManifest, Lane, LaneRouter, TwoLaneConfig};
+use inspire_core::{HotLaneManifest, Lane, LaneRouter, TwoLaneConfig, CrsMetadata, PIR_PARAMS_VERSION};
 use inspire_pir::{
     params::ShardConfig, respond, respond_mmap, ClientQuery, EncodedDatabase, MmapDatabase,
     ServerCrs, ServerResponse,
@@ -129,6 +129,8 @@ pub struct DbSnapshot {
     pub router: Option<LaneRouter>,
     /// Block number this snapshot reflects
     pub block_number: Option<u64>,
+    /// PIR params version (from CRS metadata)
+    pub pir_params_version: u16,
 }
 
 impl DbSnapshot {
@@ -170,6 +172,7 @@ impl DbSnapshot {
                 .map(|r| r.hot_contract_count())
                 .unwrap_or(0),
             block_number: self.block_number,
+            pir_params_version: self.pir_params_version,
         }
     }
 }
@@ -183,6 +186,7 @@ pub struct LaneStats {
     pub cold_entries: u64,
     pub hot_contracts: usize,
     pub block_number: Option<u64>,
+    pub pir_params_version: u16,
 }
 
 /// Server state with lock-free reads via ArcSwap
@@ -206,6 +210,7 @@ impl ServerState {
             cold_lane: None,
             router: None,
             block_number: None,
+            pir_params_version: PIR_PARAMS_VERSION,
         });
         Self {
             snapshot: ArcSwap::from(empty_snapshot),
@@ -246,6 +251,7 @@ impl ServerState {
             cold_lane,
             router,
             block_number,
+            pir_params_version: PIR_PARAMS_VERSION,
         });
 
         self.snapshot.store(new_snapshot);
@@ -345,6 +351,8 @@ impl ServerState {
             Lane::Cold => (&self.config.cold_lane_crs, &self.config.cold_lane_db),
         };
 
+        self.validate_crs_metadata(lane)?;
+
         let lane_data = LaneData::load_inmemory(crs_path, db_path)?;
         self.validate_lane_data(&lane_data, lane)?;
         Ok(lane_data)
@@ -383,6 +391,8 @@ impl ServerState {
             entry_size_bytes: self.config.entry_size,
             total_entries: expected_entries,
         };
+
+        self.validate_crs_metadata(lane)?;
 
         let lane_data = LaneData::load_mmap(crs_path, shards_dir, config)?;
         Ok(lane_data)
@@ -433,6 +443,45 @@ impl ServerState {
                 actual_value: db_entry_size.to_string(),
             });
         }
+
+        Ok(())
+    }
+
+    fn validate_crs_metadata(&self, lane: Lane) -> Result<()> {
+        let (crs_path, lane_name) = match lane {
+            Lane::Hot => (&self.config.hot_lane_crs, "hot"),
+            Lane::Cold => (&self.config.cold_lane_crs, "cold"),
+        };
+
+        let meta_path = crs_path.with_file_name("crs.meta.json");
+
+        if !meta_path.exists() {
+            tracing::warn!(
+                lane = lane_name,
+                path = %meta_path.display(),
+                "CRS metadata not found - skipping version check (legacy CRS)"
+            );
+            return Ok(());
+        }
+
+        let metadata = CrsMetadata::load(&meta_path).map_err(|e| {
+            ServerError::Internal(format!("Failed to load CRS metadata: {}", e))
+        })?;
+
+        if metadata.pir_params_version != PIR_PARAMS_VERSION {
+            return Err(ServerError::ParamsVersionMismatch {
+                crs_version: metadata.pir_params_version,
+                expected_version: PIR_PARAMS_VERSION,
+                lane: lane_name.to_string(),
+            });
+        }
+
+        tracing::info!(
+            lane = lane_name,
+            pir_params_version = metadata.pir_params_version,
+            entry_count = metadata.entry_count,
+            "CRS metadata validated"
+        );
 
         Ok(())
     }

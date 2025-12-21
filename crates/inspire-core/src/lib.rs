@@ -46,6 +46,7 @@ mod routing;
 mod indexing;
 mod error;
 mod balance;
+mod params;
 
 pub use lane::Lane;
 pub use config::{TwoLaneConfig, PROTOCOL_VERSION};
@@ -54,6 +55,7 @@ pub use routing::{LaneRouter, QueryTarget, RoutedQuery};
 pub use indexing::{slot_to_offset, hot_index, cold_index};
 pub use error::Error;
 pub use balance::{BalanceRecord, BalanceDbMetadata, BALANCE_RECORD_SIZE};
+pub use params::{PIR_PARAMS_VERSION, PIR_PARAMS, PirParams, CrsMetadata, ParamsVersionError};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

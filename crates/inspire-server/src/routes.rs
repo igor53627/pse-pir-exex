@@ -45,6 +45,7 @@ pub struct QueryResponse {
 #[derive(Serialize)]
 pub struct ServerInfo {
     pub version: String,
+    pub pir_params_version: u16,
     pub config_hash: String,
     pub manifest_block: Option<u64>,
     pub hot_entries: u64,
@@ -81,6 +82,7 @@ async fn info(State(state): State<SharedState>) -> Json<ServerInfo> {
 
     Json(ServerInfo {
         version: state.config.version.clone(),
+        pir_params_version: stats.pir_params_version,
         config_hash: state
             .config
             .config_hash

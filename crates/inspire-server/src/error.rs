@@ -22,6 +22,16 @@ pub enum ServerError {
         actual_value: String,
     },
 
+    #[error("PIR params version mismatch: CRS was generated with v{crs_version}, but server expects v{expected_version}. Regenerate CRS/DB with lane-builder.")]
+    ParamsVersionMismatch {
+        crs_version: u16,
+        expected_version: u16,
+        lane: String,
+    },
+
+    #[error("CRS metadata not found for {lane} lane at {path}. Regenerate with lane-builder >= 0.1.0.")]
+    CrsMetadataNotFound { lane: String, path: String },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -39,6 +49,8 @@ impl IntoResponse for ServerError {
             ServerError::InvalidQuery(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ServerError::PirError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ServerError::ConfigMismatch { .. } => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ServerError::ParamsVersionMismatch { .. } => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ServerError::CrsMetadataNotFound { .. } => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ServerError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ServerError::Json(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ServerError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
