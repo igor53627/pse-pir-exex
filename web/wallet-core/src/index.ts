@@ -26,4 +26,6 @@ export {
   HeliosError,
   PirQueryError,
   AddressNotFoundError,
+  NotInitializedError,
+  SnapshotNotVerifiedError,
 } from './types.js';

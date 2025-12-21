@@ -106,6 +106,14 @@ export class AddressNotFoundError extends Data.TaggedError('AddressNotFoundError
   readonly address: string;
 }> {}
 
+export class NotInitializedError extends Data.TaggedError('NotInitializedError')<{
+  readonly _brand?: never;
+}> {}
+
+export class SnapshotNotVerifiedError extends Data.TaggedError('SnapshotNotVerifiedError')<{
+  readonly _brand?: never;
+}> {}
+
 export type SnapshotError =
   | VerificationError
   | HashMismatchError
@@ -114,7 +122,9 @@ export type SnapshotError =
   | TooStaleError
   | NotFinalizedError
   | ChainIdMismatchError
-  | HeliosError;
+  | HeliosError
+  | NotInitializedError
+  | SnapshotNotVerifiedError;
 
 export type BalanceError =
   | PirQueryError
