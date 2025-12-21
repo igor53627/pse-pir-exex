@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Prometheus metrics and observability (#43)
+  - PIR request metrics: `pir_requests_total`, `pir_request_duration_seconds` (by lane/outcome)
+  - Lane status metrics: `pir_lane_loaded`, `pir_lane_block_number`, `pir_lane_mmap_mode`
+  - Reload metrics: `pir_reload_total`, `pir_reload_duration_seconds`
+  - `/metrics` endpoint for Prometheus scraping
+  - `/health` returns 503 when lanes not ready (proper readiness semantics)
+  - `/live` liveness endpoint (always 200 if server alive)
+  - Privacy-safe: no query content in metrics labels
+
 - PIR parameter versioning for client/server compatibility (#39)
   - `PIR_PARAMS_VERSION` constant (v2) in `inspire-core`
   - `PirParams` struct with all RLWE parameters

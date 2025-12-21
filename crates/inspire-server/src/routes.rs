@@ -13,13 +13,22 @@ use inspire_core::Lane;
 use inspire_pir::{params::ShardConfig, ClientQuery, SeededClientQuery, ServerResponse};
 
 use crate::error::{Result, ServerError};
-use crate::state::{LaneStats, ReloadResult, SharedState};
+use crate::state::{ReloadResult, SharedState};
+use crate::metrics;
 
-/// Health check response
+/// Health/readiness check response
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub status: String,
-    pub lanes: LaneStats,
+    pub hot_loaded: bool,
+    pub cold_loaded: bool,
+    pub mmap_mode: bool,
+}
+
+/// Liveness check response (lightweight)
+#[derive(Serialize)]
+pub struct LiveResponse {
+    pub status: String,
 }
 
 /// PIR query request (full ciphertext)
@@ -63,15 +72,35 @@ pub struct CrsResponse {
     pub shard_config: ShardConfig,
 }
 
-/// Health check endpoint
-async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
+/// Health/readiness check endpoint
+///
+/// Returns 200 OK only when both lanes are loaded and ready to serve.
+/// Returns 503 Service Unavailable otherwise.
+async fn health(State(state): State<SharedState>) -> Response {
     let snapshot = state.load_snapshot();
     let stats = snapshot.stats();
-    let status = if snapshot.is_ready() { "ready" } else { "loading" };
+    let ready = snapshot.is_ready();
 
-    Json(HealthResponse {
-        status: status.to_string(),
-        lanes: stats,
+    let response = HealthResponse {
+        status: if ready { "ok".to_string() } else { "unavailable".to_string() },
+        hot_loaded: stats.hot_loaded,
+        cold_loaded: stats.cold_loaded,
+        mmap_mode: state.config.use_mmap,
+    };
+
+    if ready {
+        Json(response).into_response()
+    } else {
+        (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(response)).into_response()
+    }
+}
+
+/// Liveness check endpoint (lightweight)
+///
+/// Always returns 200 OK if the server is alive. Does not check lane status.
+async fn live() -> Json<LiveResponse> {
+    Json(LiveResponse {
+        status: "ok".to_string(),
     })
 }
 
@@ -117,11 +146,31 @@ async fn query(
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<QueryResponse>> {
     let lane = parse_lane(&lane)?;
+    let lane_str = lane_to_string(lane);
+    let start = std::time::Instant::now();
+    metrics::record_pir_request_start(&lane_str);
 
     let snapshot = state.load_snapshot_full();
-    let response = snapshot.process_query(lane, &req.query)?;
+    let result = snapshot.process_query(lane, &req.query);
 
-    Ok(Json(QueryResponse { response, lane }))
+    metrics::record_pir_request_end(&lane_str);
+    let duration = start.elapsed();
+
+    match result {
+        Ok(response) => {
+            metrics::record_pir_request(&lane_str, metrics::OUTCOME_OK, duration);
+            Ok(Json(QueryResponse { response, lane }))
+        }
+        Err(e) => {
+            let outcome = if matches!(e, ServerError::InvalidQuery(_)) {
+                metrics::OUTCOME_CLIENT_ERROR
+            } else {
+                metrics::OUTCOME_SERVER_ERROR
+            };
+            metrics::record_pir_request(&lane_str, outcome, duration);
+            Err(e)
+        }
+    }
 }
 
 /// Process a seeded PIR query (~50% smaller, server expands)
@@ -207,10 +256,27 @@ fn parse_lane(s: &str) -> Result<Lane> {
     }
 }
 
+/// Convert lane to string for metrics
+fn lane_to_string(lane: Lane) -> String {
+    match lane {
+        Lane::Hot => metrics::LANE_HOT.to_string(),
+        Lane::Cold => metrics::LANE_COLD.to_string(),
+    }
+}
+
 /// Create the router with all routes
 pub fn create_router(state: SharedState) -> Router {
-    Router::new()
+    create_router_with_metrics(state, None)
+}
+
+/// Create the router with metrics endpoint
+pub fn create_router_with_metrics(
+    state: SharedState,
+    prometheus_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
+) -> Router {
+    let mut router = Router::new()
         .route("/health", get(health))
+        .route("/live", get(live))
         .route("/info", get(info))
         .route("/crs/{lane}", get(get_crs))
         .route("/query/{lane}", post(query))
@@ -218,7 +284,16 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/query/{lane}/seeded", post(query_seeded))
         .route("/query/{lane}/seeded/binary", post(query_seeded_binary))
         .route("/admin/reload", post(admin_reload))
-        .with_state(state)
+        .with_state(state);
+
+    if let Some(handle) = prometheus_handle {
+        router = router.route("/metrics", get(move || {
+            let metrics = handle.render();
+            async move { metrics }
+        }));
+    }
+
+    router
 }
 
 #[cfg(test)]
