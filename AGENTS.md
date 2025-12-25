@@ -72,6 +72,18 @@ cargo build -p lane-builder --release
 | plinko-extractor | ~/pse/plinko-extractor | State extraction |
 | pse-client | ~/pse/pse-client | Base client |
 
+## Remote Resources
+
+| Resource | Host | Path | Description |
+|----------|------|------|-------------|
+| Sepolia Reth DB | `ssh root@aya` | `/mnt/sepolia/data/db` | Full Sepolia MDBX database (624 GB) |
+| Sepolia PIR State | `ssh root@aya` | `/mnt/sepolia/pir-state` | Extracted state dump (53 GB, 886M entries) |
+| Sepolia PIR Data | `ssh root@aya` | `/mnt/sepolia/pir-data` | PIR-ready format (62 GB, 745M storage slots) |
+
+## Architecture Decisions
+
+- **Hot/Cold Lane Split**: Deferred for future. Currently using single-lane PIR for simplicity.
+
 ## Open Tasks
 
 See GitHub issues for current work items.

@@ -250,8 +250,8 @@ async fn admin_reload(State(state): State<SharedState>) -> Result<Json<ReloadRes
 /// Parse lane from URL path
 fn parse_lane(s: &str) -> Result<Lane> {
     match s.to_lowercase().as_str() {
-        "hot" => Ok(Lane::Hot),
-        "cold" => Ok(Lane::Cold),
+        "hot" | "balances" => Ok(Lane::Hot),
+        "cold" | "storage" => Ok(Lane::Cold),
         _ => Err(ServerError::InvalidQuery(format!("Invalid lane: {}", s))),
     }
 }
