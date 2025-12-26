@@ -48,6 +48,7 @@ mod error;
 mod balance;
 mod params;
 pub mod bucket_index;
+pub mod state_format;
 
 pub use lane::Lane;
 pub use config::{TwoLaneConfig, PROTOCOL_VERSION};
@@ -57,6 +58,10 @@ pub use indexing::{slot_to_offset, hot_index, cold_index};
 pub use error::Error;
 pub use balance::{BalanceRecord, BalanceDbMetadata, BALANCE_RECORD_SIZE};
 pub use params::{PIR_PARAMS_VERSION, PIR_PARAMS, PirParams, CrsMetadata, ParamsVersionError};
+pub use state_format::{
+    StateHeader, StorageEntry, StateFormatError,
+    STATE_MAGIC, STATE_HEADER_SIZE, STATE_ENTRY_SIZE,
+};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
