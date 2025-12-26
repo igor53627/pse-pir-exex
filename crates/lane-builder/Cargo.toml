@@ -18,6 +18,8 @@ balance = ["dep:alloy-provider", "dep:alloy-rpc-types", "dep:alloy-primitives", 
 state-dump = ["dep:mdbx-rs", "dep:eyre", "dep:clap", "dep:indicatif", "dep:color-eyre"]
 # Enable bucket index builder for sparse PIR lookups
 bucket-index = ["dep:clap", "dep:indicatif", "dep:tiny-keccak", "dep:zstd"]
+# Enable test database generator
+gen-test-db = ["dep:clap", "dep:eyre", "dep:tiny-keccak"]
 
 [[bin]]
 name = "lane-builder"
@@ -47,6 +49,11 @@ required-features = ["state-dump"]
 name = "bucket-index"
 path = "src/bin/bucket_index.rs"
 required-features = ["bucket-index"]
+
+[[bin]]
+name = "gen-test-db"
+path = "src/bin/gen_test_db.rs"
+required-features = ["gen-test-db"]
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }
