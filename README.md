@@ -12,13 +12,19 @@ With UBT (Unified Binary Trie, EIP-7864), clients compute indices directly using
 
 ## Snapshots
 
-Pre-built PIR state snapshots are available for download:
+Pre-built PIR databases are available for download:
 
-| Network | Block | Entries | Size | UBT Root | Download |
-|---------|-------|---------|------|----------|----------|
-| Sepolia | 9,931,024 | 6.3M | 514 MB | `0xeb3673...` | [state.bin](https://snapshots.53627.org/inspire/sepolia/state.bin) |
+| Network | Block | Entries | Shards | PIR DB Size | Download |
+|---------|-------|---------|--------|-------------|----------|
+| Sepolia | 9,930,973 | 6.4M | 3,133 | 1.1 GB | [pir-db/](https://snapshots.53627.org/inspire/sepolia/pir-db/) |
 
-Metadata: [metadata.json](https://snapshots.53627.org/inspire/sepolia/metadata.json)
+Files in `pir-db/`:
+- `metadata.json` - Database parameters (p=65537, d=2048)
+- `crs.json` - Common reference string (80 MB)
+- `bucket-index.bin` - Sparse lookup index (512 KB)
+- `shards/` - Binary shards for mmap loading
+
+Raw state dump: [state.bin](https://snapshots.53627.org/inspire/sepolia/state.bin) (514 MB)
 
 ## Performance
 
