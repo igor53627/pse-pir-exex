@@ -10,6 +10,16 @@ With UBT (Unified Binary Trie, EIP-7864), clients compute indices directly using
 
 **Current deployment**: Sepolia testnet via ethrex with UBT
 
+## Snapshots
+
+Pre-built PIR state snapshots are available for download:
+
+| Network | Block | Entries | Size | UBT Root | Download |
+|---------|-------|---------|------|----------|----------|
+| Sepolia | 9,931,024 | 6.3M | 514 MB | `0xeb3673...` | [state.bin](https://snapshots.53627.org/inspire/sepolia/state.bin) |
+
+Metadata: [metadata.json](https://snapshots.53627.org/inspire/sepolia/metadata.json)
+
 ## Performance
 
 | Variant | Query | Response | Total | Privacy |
