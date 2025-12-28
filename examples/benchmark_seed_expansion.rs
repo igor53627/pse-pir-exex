@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             InspireParams {
                 ring_dim: 256,
                 q: 1152921504606830593,
-                p: 65536,
+                p: 65537, // Fermat prime F4
                 sigma: 3.2,
                 gadget_base: 1 << 20,
                 gadget_len: 3,

@@ -64,7 +64,7 @@ pub const PIR_PARAMS: PirParams = PirParams {
     ring_dim: 2048,
     sigma: 6.4,
     q: 1152921504606830593, // 2^60 - 2^14 + 1
-    p: 65536,               // 2^16
+    p: 65537,               // Fermat prime F4, ensures gcd(d, p) = 1 for mod_inverse
     gadget_base: 1 << 20,
     gadget_len: 3,
 };

@@ -13,9 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `TwoLaneSetup` now uses separate samplers for hot and cold lane setup
   - Previously, sharing a sampler between setups caused cryptographic failures in the second lane
   
-- Fixed `test_params()` plaintext modulus from p=65536 to p=65537 (Fermat prime F4)
+- Fixed plaintext modulus from p=65536 to p=65537 (Fermat prime F4) in all params
   - Ensures `gcd(d, p) = 1` so `mod_inverse(d, p)` exists for tree packing unscaling
   - Required for OnePacking extraction to work correctly
+  - Updated `default_params()`, `test_params()`, `PIR_PARAMS`, and all examples/docs
 
 - Updated server E2E tests to use `extract_with_variant(..., InspireVariant::OnePacking)`
   - Server uses `respond_one_packing()`, so extraction must use matching variant

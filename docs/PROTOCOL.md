@@ -138,7 +138,7 @@ parameterized by `PirParams`. The production parameters are:
       ring_dim: 2048,
       sigma: 6.4,
       q: 1152921504606830593,
-      p: 65536,
+      p: 65537,  // Fermat prime F4, ensures gcd(d, p) = 1 for mod_inverse
       gadget_base: 1 << 20,
       gadget_len: 3,
   };
