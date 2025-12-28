@@ -116,9 +116,15 @@ impl EthrexClient {
     }
 
     /// Get UBT root hash for block (public endpoint)
+    /// Note: ubt_getRoot returns just the root hash as a hex string
     pub async fn ubt_get_root(&self, block: u64) -> anyhow::Result<UbtRootResponse> {
-        self.rpc_call("ubt_getRoot", serde_json::json!([block]))
-            .await
+        let root: B256 = self
+            .rpc_call("ubt_getRoot", serde_json::json!([block]))
+            .await?;
+        Ok(UbtRootResponse {
+            block_number: block,
+            root,
+        })
     }
 
     /// Dump storage with pagination
