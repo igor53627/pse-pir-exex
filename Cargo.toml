@@ -13,6 +13,7 @@ members = [
     "crates/lane-builder",
     "crates/burner-wallet",
     "crates/alloy-wasm",
+    "crates/inspire-updater",
 ]
 
 [dependencies]

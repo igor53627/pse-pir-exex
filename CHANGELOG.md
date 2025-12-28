@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- New `inspire-updater` crate for syncing PIR database from ethrex node (#62)
+  - `EthrexClient` with `pir_dumpStorage`, `pir_getStateDelta`, and `ubt_getRoot` support
+  - `StateTracker` for tracking storage state changes
+  - `ShardWriter` writes `state.bin` in PIR2 format (sorted by keccak256(address||slot))
+  - `UpdaterService` with initial sync and efficient incremental updates
+  - CLI binary: `cargo run -p inspire-updater --bin updater`
+  - Tested with ethrex Sepolia node on hsiao
+
 - WebSocket protocol improvements (#56)
   - Server now responds to Ping with Pong (fixes keepalive for clients)
   - Hello message on connect: `{"version":1,"block_number":12345}`
