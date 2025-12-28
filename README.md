@@ -28,14 +28,28 @@ Raw state dump: [state.bin](https://snapshots.53627.org/inspire/sepolia/state.bi
 
 ## Performance
 
+### Bandwidth
+
 | Variant | Query | Response | Total | Privacy |
 |---------|-------|----------|-------|---------|
 | InsPIRe^0 (baseline) | 192 KB | 545 KB | 737 KB | Single-server PIR |
 | InsPIRe^1 (OnePacking) | 192 KB | 32 KB | 224 KB | Single-server PIR |
-| InsPIRe^2 (Seeded+Packed) | 96 KB | 32 KB | 128 KB | Single-server PIR |
-| **InsPIRe^2+ (Switched+Packed)** | **48 KB** | **32 KB** | **80 KB** | **Single-server PIR** |
+| **InsPIRe^2 (Seeded+Packed)** | **96 KB** | **32 KB** | **128 KB** | **Single-server PIR** |
+| InsPIRe^2+ (Switched+Packed) | 48 KB | 32 KB | 80 KB | Single-server PIR |
 
-Sizes shown are for default parameters (d=2048, 128-bit security). End-to-end latency (local benchmark): ~12 ms (query gen ~4ms + server ~4ms + extract ~5ms). Network latency not included.
+CRS download (one-time): 80 MB. Sizes for d=2048, 128-bit security.
+
+### Production Benchmarks (Sepolia, 6.4M entries)
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Server latency | 2.5-3.3s | Per query, 3133 shards |
+| Query generation | ~4 ms | Client-side |
+| Extraction | ~0.5 ms | Client-side |
+| Throughput | 2.5 qps | 10 concurrent queries |
+| Memory (server) | 450-750 MB | Mmap mode |
+
+Latency scales with database size. For smaller databases (~10K entries), expect ~10-50ms server latency.
 
 ## Architecture
 
