@@ -20,6 +20,8 @@ state-dump = ["dep:mdbx-rs", "dep:eyre", "dep:clap", "dep:indicatif", "dep:color
 bucket-index = ["dep:clap", "dep:indicatif", "dep:tiny-keccak", "dep:zstd"]
 # Enable test database generator
 gen-test-db = ["dep:clap", "dep:eyre", "dep:tiny-keccak"]
+# Enable state-to-pir converter
+state-to-pir = ["dep:clap"]
 
 [[bin]]
 name = "lane-builder"
@@ -54,6 +56,11 @@ required-features = ["bucket-index"]
 name = "gen-test-db"
 path = "src/bin/gen_test_db.rs"
 required-features = ["gen-test-db"]
+
+[[bin]]
+name = "state-to-pir"
+path = "src/bin/state_to_pir.rs"
+required-features = ["state-to-pir"]
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }
