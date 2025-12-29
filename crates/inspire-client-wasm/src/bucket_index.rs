@@ -217,8 +217,6 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     fn test_bucket_id_deterministic() {
         let address = [0x42u8; 20];
@@ -263,5 +261,111 @@ mod tests {
         let block = index.apply_delta(&delta_bytes).unwrap();
         assert_eq!(block, 42);
         assert_eq!(index.bucket_count(0), 15);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_apply_range_delta() {
+        let mut data = vec![0u8; NUM_BUCKETS * 2];
+        data[0] = 10;
+        data[2] = 5;
+
+        let mut index = BucketIndex::from_bytes(&data).unwrap();
+        assert_eq!(index.bucket_count(0), 10);
+        assert_eq!(index.bucket_count(1), 5);
+
+        // Create merged delta (what range_delta would contain)
+        let delta = CoreDelta {
+            block_number: 100,
+            updates: vec![(0, 20), (1, 15), (5, 8)],
+        };
+        let delta_bytes = delta.to_bytes();
+
+        let block = index.apply_range_delta(&delta_bytes).unwrap();
+        assert_eq!(block, 100);
+        assert_eq!(index.bucket_count(0), 20);
+        assert_eq!(index.bucket_count(1), 15);
+        assert_eq!(index.bucket_count(5), 8);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_range_delta_info_parsing() {
+        use inspire_core::bucket_index::range_delta::{
+            RangeDeltaHeader, RangeEntry, DEFAULT_RANGES, HEADER_SIZE, RANGE_ENTRY_SIZE, VERSION,
+        };
+
+        // Create a minimal header + directory
+        let mut data = vec![0u8; HEADER_SIZE + DEFAULT_RANGES.len() * RANGE_ENTRY_SIZE];
+
+        // Write header
+        let header = RangeDeltaHeader {
+            version: VERSION,
+            current_block: 12345,
+            num_ranges: DEFAULT_RANGES.len() as u32,
+        };
+        data[..HEADER_SIZE].copy_from_slice(&header.to_bytes());
+
+        // Write directory entries
+        let mut offset = HEADER_SIZE;
+        let mut data_offset = (HEADER_SIZE + DEFAULT_RANGES.len() * RANGE_ENTRY_SIZE) as u32;
+        for &blocks in DEFAULT_RANGES {
+            let entry = RangeEntry {
+                blocks_covered: blocks,
+                offset: data_offset,
+                size: 100, // dummy size
+                entry_count: 1,
+            };
+            data[offset..offset + RANGE_ENTRY_SIZE].copy_from_slice(&entry.to_bytes());
+            offset += RANGE_ENTRY_SIZE;
+            data_offset += 100;
+        }
+
+        let info = RangeDeltaInfo::from_bytes(&data).unwrap();
+        assert_eq!(info.current_block(), 12345);
+        assert_eq!(info.num_ranges(), 5);
+        assert_eq!(info.range_blocks(0), 1);
+        assert_eq!(info.range_blocks(1), 10);
+        assert_eq!(info.range_blocks(2), 100);
+        assert_eq!(info.range_blocks(3), 1000);
+        assert_eq!(info.range_blocks(4), 10000);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_range_delta_info_select_range() {
+        use inspire_core::bucket_index::range_delta::{
+            RangeDeltaHeader, RangeEntry, DEFAULT_RANGES, HEADER_SIZE, RANGE_ENTRY_SIZE, VERSION,
+        };
+
+        // Create header + directory
+        let mut data = vec![0u8; HEADER_SIZE + DEFAULT_RANGES.len() * RANGE_ENTRY_SIZE];
+        let header = RangeDeltaHeader {
+            version: VERSION,
+            current_block: 12345,
+            num_ranges: DEFAULT_RANGES.len() as u32,
+        };
+        data[..HEADER_SIZE].copy_from_slice(&header.to_bytes());
+
+        let mut offset = HEADER_SIZE;
+        for &blocks in DEFAULT_RANGES {
+            let entry = RangeEntry {
+                blocks_covered: blocks,
+                offset: 0,
+                size: 0,
+                entry_count: 0,
+            };
+            data[offset..offset + RANGE_ENTRY_SIZE].copy_from_slice(&entry.to_bytes());
+            offset += RANGE_ENTRY_SIZE;
+        }
+
+        let info = RangeDeltaInfo::from_bytes(&data).unwrap();
+
+        // Test range selection
+        assert_eq!(info.select_range(0), -1); // synced
+        assert_eq!(info.select_range(1), 0); // range 0 covers 1 block
+        assert_eq!(info.select_range(5), 1); // range 1 covers 10 blocks
+        assert_eq!(info.select_range(10), 1);
+        assert_eq!(info.select_range(50), 2); // range 2 covers 100 blocks
+        assert_eq!(info.select_range(500), 3); // range 3 covers 1000 blocks
+        assert_eq!(info.select_range(5000), 4); // range 4 covers 10000 blocks
+        assert_eq!(info.select_range(50000), -1); // too far behind
     }
 }

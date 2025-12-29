@@ -881,6 +881,305 @@ async fn test_bucket_index_info_endpoint() {
 }
 
 // ============================================================================
+// Range Delta Sync Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_range_delta_info_endpoint_returns_error_when_not_configured() {
+    let harness = TestHarness::new().await;
+
+    let resp = harness
+        .http
+        .get(format!("{}/index/deltas/info", harness.server_url))
+        .send()
+        .await
+        .expect("request");
+
+    // Without range delta loaded, should return error
+    let status = resp.status().as_u16();
+    assert!(
+        status >= 400,
+        "Should return error when range delta not loaded: {}",
+        status
+    );
+}
+
+#[tokio::test]
+async fn test_range_delta_endpoint_returns_error_when_not_configured() {
+    let harness = TestHarness::new().await;
+
+    let resp = harness
+        .http
+        .get(format!("{}/index/deltas", harness.server_url))
+        .send()
+        .await
+        .expect("request");
+
+    // Without range delta loaded, should return error
+    let status = resp.status().as_u16();
+    assert!(
+        status >= 400,
+        "Should return error when range delta not loaded: {}",
+        status
+    );
+}
+
+/// Test harness with range delta file configured
+pub struct RangeDeltaTestHarness {
+    pub server_url: String,
+    pub temp_dir: PathBuf,
+    pub http: Client,
+}
+
+impl RangeDeltaTestHarness {
+    /// Create a test server with a range delta file
+    ///
+    /// Uses the full TestHarness to set up lanes, then adds a range delta file
+    pub async fn new() -> Self {
+        use inspire_core::bucket_index::range_delta::{
+            RangeDeltaHeader, RangeEntry, DEFAULT_RANGES, HEADER_SIZE, RANGE_ENTRY_SIZE, VERSION,
+        };
+        use inspire_core::bucket_index::BucketDelta;
+        use std::io::Write;
+
+        // Create a full test harness first (with lanes)
+        let base = TestHarness::new().await;
+
+        // Create a range delta file in the temp dir
+        let delta_path = base.temp_dir.join("bucket-deltas.bin");
+        let mut file = std::fs::File::create(&delta_path).expect("create delta file");
+
+        // Write header
+        let header = RangeDeltaHeader {
+            version: VERSION,
+            current_block: 12345,
+            num_ranges: DEFAULT_RANGES.len() as u32,
+        };
+        file.write_all(&header.to_bytes()).expect("write header");
+
+        // Create test deltas for each range
+        let mut range_data: Vec<Vec<u8>> = Vec::new();
+        for i in 0..DEFAULT_RANGES.len() {
+            let delta = BucketDelta {
+                block_number: 12345,
+                updates: vec![(i, (i + 1) as u16), (i + 100, (i + 10) as u16)],
+            };
+            range_data.push(delta.to_bytes());
+        }
+
+        // Calculate offsets and write directory
+        let directory_size = DEFAULT_RANGES.len() * RANGE_ENTRY_SIZE;
+        let mut offset = (HEADER_SIZE + directory_size) as u32;
+
+        for (i, data) in range_data.iter().enumerate() {
+            let entry = RangeEntry {
+                blocks_covered: DEFAULT_RANGES[i],
+                offset,
+                size: data.len() as u32,
+                entry_count: 1,
+            };
+            file.write_all(&entry.to_bytes()).expect("write entry");
+            offset += data.len() as u32;
+        }
+
+        // Write range data
+        for data in &range_data {
+            file.write_all(data).expect("write range data");
+        }
+        drop(file);
+
+        // Now create a new server with the range delta path configured
+        let mut config = base.config.clone();
+        config.range_delta_path = Some(delta_path);
+
+        let state = create_shared_state(config);
+        state.load_lanes().expect("Lanes should load");
+
+        let router = create_router(state);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("Bind should succeed");
+        let addr = listener.local_addr().expect("local addr");
+        let server_url = format!("http://{}", addr);
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.ok();
+        });
+
+        let http = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("HTTP client");
+
+        // Wait for server to be ready
+        for _ in 0..20 {
+            if http
+                .get(format!("{}/live", server_url))
+                .send()
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        Self {
+            server_url,
+            temp_dir: base.temp_dir.clone(),
+            http,
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+struct RangeDeltaInfoResponse {
+    current_block: u64,
+    ranges: Vec<RangeInfoItem>,
+}
+
+#[derive(Deserialize, Debug)]
+struct RangeInfoItem {
+    blocks_covered: u32,
+    offset: u32,
+    size: u32,
+}
+
+#[tokio::test]
+async fn test_range_delta_info_endpoint_with_file() {
+    let harness = RangeDeltaTestHarness::new().await;
+
+    let resp = harness
+        .http
+        .get(format!("{}/index/deltas/info", harness.server_url))
+        .send()
+        .await
+        .expect("request");
+
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "Should return 200 when range delta file is loaded"
+    );
+
+    let info: RangeDeltaInfoResponse = resp.json().await.expect("parse json");
+    assert_eq!(info.current_block, 12345);
+    assert_eq!(info.ranges.len(), 5);
+    assert_eq!(info.ranges[0].blocks_covered, 1);
+    assert_eq!(info.ranges[1].blocks_covered, 10);
+    assert_eq!(info.ranges[2].blocks_covered, 100);
+    assert_eq!(info.ranges[3].blocks_covered, 1000);
+    assert_eq!(info.ranges[4].blocks_covered, 10000);
+}
+
+#[tokio::test]
+async fn test_range_delta_endpoint_full_file() {
+    let harness = RangeDeltaTestHarness::new().await;
+
+    let resp = harness
+        .http
+        .get(format!("{}/index/deltas", harness.server_url))
+        .send()
+        .await
+        .expect("request");
+
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "Should return 200 for full delta file"
+    );
+
+    let data = resp.bytes().await.expect("get bytes");
+    assert!(data.len() > 64, "Should have header + data");
+
+    // Verify magic bytes
+    assert_eq!(&data[0..4], b"BDLT", "Should have BDLT magic");
+}
+
+#[tokio::test]
+async fn test_range_delta_http_range_request() {
+    let harness = RangeDeltaTestHarness::new().await;
+
+    // First get info to find range offsets
+    let info_resp = harness
+        .http
+        .get(format!("{}/index/deltas/info", harness.server_url))
+        .send()
+        .await
+        .expect("info request");
+
+    let info: RangeDeltaInfoResponse = info_resp.json().await.expect("parse json");
+
+    // Request just range 0 using HTTP Range header
+    let range0 = &info.ranges[0];
+    let range_header = format!(
+        "bytes={}-{}",
+        range0.offset,
+        range0.offset + range0.size - 1
+    );
+
+    let resp = harness
+        .http
+        .get(format!("{}/index/deltas", harness.server_url))
+        .header("Range", range_header)
+        .send()
+        .await
+        .expect("range request");
+
+    // Server may return 200 or 206 depending on implementation
+    let status = resp.status().as_u16();
+    assert!(
+        status == 200 || status == 206,
+        "Should return 200 or 206 for range request: {}",
+        status
+    );
+
+    let data = resp.bytes().await.expect("get bytes");
+    // Data should be a BucketDelta - at least 12 bytes header
+    assert!(
+        data.len() >= 12,
+        "Range data should be at least 12 bytes: {}",
+        data.len()
+    );
+}
+
+#[tokio::test]
+async fn test_bucket_delta_parsing_from_range() {
+    use inspire_core::bucket_index::BucketDelta;
+
+    let harness = RangeDeltaTestHarness::new().await;
+
+    // Get info and fetch range 0
+    let info_resp = harness
+        .http
+        .get(format!("{}/index/deltas/info", harness.server_url))
+        .send()
+        .await
+        .expect("info request");
+
+    let info: RangeDeltaInfoResponse = info_resp.json().await.expect("parse json");
+    let range0 = &info.ranges[0];
+
+    // Fetch full file and extract range 0 data
+    let resp = harness
+        .http
+        .get(format!("{}/index/deltas", harness.server_url))
+        .send()
+        .await
+        .expect("request");
+
+    let data = resp.bytes().await.expect("get bytes");
+    let range_data = &data[range0.offset as usize..(range0.offset + range0.size) as usize];
+
+    // Parse as BucketDelta
+    let delta = BucketDelta::from_bytes(range_data).expect("parse delta");
+    assert_eq!(delta.block_number, 12345);
+    assert_eq!(delta.updates.len(), 2);
+    assert_eq!(delta.updates[0], (0, 1));
+    assert_eq!(delta.updates[1], (100, 10));
+}
+
+// ============================================================================
 // Load Tests (marked #[ignore] for manual/nightly runs)
 // ============================================================================
 
