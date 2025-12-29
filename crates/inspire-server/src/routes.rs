@@ -543,7 +543,8 @@ pub fn create_router_with_metrics(
         .route("/index/deltas", get(get_range_delta))
         .route("/index/deltas/info", get(get_range_delta_info))
         .route("/admin/reload", post(admin_reload))
-        .with_state(state);
+        .with_state(state)
+        .layer(CorsLayer::permissive());
 
     if let Some(handle) = prometheus_handle {
         router = router.route(
