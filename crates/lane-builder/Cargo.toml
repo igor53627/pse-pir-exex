@@ -22,6 +22,8 @@ bucket-index = ["dep:clap", "dep:indicatif", "dep:tiny-keccak", "dep:zstd"]
 gen-test-db = ["dep:clap", "dep:eyre", "dep:tiny-keccak"]
 # Enable state-to-pir converter
 state-to-pir = ["dep:clap"]
+# Enable PIR test client
+pir-test = ["dep:clap"]
 
 [[bin]]
 name = "lane-builder"
@@ -61,6 +63,11 @@ required-features = ["gen-test-db"]
 name = "state-to-pir"
 path = "src/bin/state_to_pir.rs"
 required-features = ["state-to-pir"]
+
+[[bin]]
+name = "pir-test"
+path = "src/bin/pir_test.rs"
+required-features = ["pir-test"]
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }
