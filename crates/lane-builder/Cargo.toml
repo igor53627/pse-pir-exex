@@ -24,6 +24,8 @@ gen-test-db = ["dep:clap", "dep:eyre", "dep:tiny-keccak"]
 state-to-pir = ["dep:clap"]
 # Enable PIR test client
 pir-test = ["dep:clap"]
+# Enable stem index generator
+stem-index = ["dep:clap"]
 
 [[bin]]
 name = "lane-builder"
@@ -68,6 +70,11 @@ required-features = ["state-to-pir"]
 name = "pir-test"
 path = "src/bin/pir_test.rs"
 required-features = ["pir-test"]
+
+[[bin]]
+name = "stem-index"
+path = "src/bin/stem_index.rs"
+required-features = ["stem-index"]
 
 [dependencies]
 inspire-core = { path = "../inspire-core" }
