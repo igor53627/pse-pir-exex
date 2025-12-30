@@ -2,10 +2,10 @@
 //!
 //! These tests verify the state.bin format defined in docs/STATE_FORMAT.md
 
-use inspire_core::bucket_index::compute_bucket_id;
 use inspire_core::state_format::{
     StateFormatError, StateHeader, StorageEntry, STATE_ENTRY_SIZE, STATE_HEADER_SIZE, STATE_MAGIC,
 };
+use inspire_core::ubt::compute_tree_key;
 
 #[test]
 fn test_header_magic() {
@@ -38,18 +38,31 @@ fn test_header_roundtrip() {
 #[test]
 fn test_entry_roundtrip() {
     let address = [0x42; 20];
-    let slot = [0x01; 32];
+    let tree_index = [0x01; 32];
     let value = [0xff; 32];
 
-    let entry = StorageEntry::new(address, slot, value);
+    let entry = StorageEntry::new(address, tree_index, value);
     let bytes = entry.to_bytes();
 
     assert_eq!(bytes.len(), STATE_ENTRY_SIZE);
 
     let recovered = StorageEntry::from_bytes(&bytes).unwrap();
     assert_eq!(recovered.address, address);
-    assert_eq!(recovered.slot, slot);
+    assert_eq!(recovered.tree_index, tree_index);
     assert_eq!(recovered.value, value);
+}
+
+#[test]
+fn test_from_storage_slot() {
+    let address = [0x42; 20];
+    let slot = [0u8; 32]; // Slot 0
+    let value = [0xff; 32];
+
+    let entry = StorageEntry::from_storage_slot(address, slot, value);
+
+    // Slot 0 should map to tree_index with subindex 64 (HEADER_STORAGE_OFFSET)
+    assert_eq!(entry.tree_index[..31], [0u8; 31]);
+    assert_eq!(entry.tree_index[31], 64);
 }
 
 #[test]
@@ -62,10 +75,11 @@ fn test_full_file_format() {
 
     let header = StateHeader::new(entry_count, block_number, chain_id, block_hash);
 
+    // Create entries with proper tree_index (using from_storage_slot)
     let entries = vec![
-        StorageEntry::new([0x11; 20], [0x01; 32], [0xaa; 32]),
-        StorageEntry::new([0x22; 20], [0x02; 32], [0xbb; 32]),
-        StorageEntry::new([0x33; 20], [0x03; 32], [0xcc; 32]),
+        StorageEntry::from_storage_slot([0x11; 20], [0x01; 32], [0xaa; 32]),
+        StorageEntry::from_storage_slot([0x22; 20], [0x02; 32], [0xbb; 32]),
+        StorageEntry::from_storage_slot([0x33; 20], [0x03; 32], [0xcc; 32]),
     ];
 
     // Build file bytes
@@ -111,23 +125,23 @@ fn test_truncated_header_rejected() {
 }
 
 #[test]
-fn test_entries_sorted_by_bucket() {
-    // Generate entries and verify they can be sorted by bucket ID
+fn test_entries_sorted_by_tree_key() {
+    // Generate entries and verify they can be sorted by tree_key (EIP-7864)
     let entries = vec![
-        StorageEntry::new([0x11; 20], [0x01; 32], [0xaa; 32]),
-        StorageEntry::new([0x22; 20], [0x02; 32], [0xbb; 32]),
-        StorageEntry::new([0x33; 20], [0x03; 32], [0xcc; 32]),
+        StorageEntry::from_storage_slot([0x11; 20], [0x01; 32], [0xaa; 32]),
+        StorageEntry::from_storage_slot([0x22; 20], [0x02; 32], [0xbb; 32]),
+        StorageEntry::from_storage_slot([0x33; 20], [0x03; 32], [0xcc; 32]),
     ];
 
     let mut sorted = entries.clone();
-    sorted.sort_by_key(|e| compute_bucket_id(&e.address, &e.slot));
+    sorted.sort_by_key(|e| compute_tree_key(&e.address, &e.tree_index));
 
-    // Verify bucket IDs are non-decreasing
-    let mut prev_bucket = 0;
+    // Verify tree_keys are non-decreasing
+    let mut prev_key = [0u8; 32];
     for entry in &sorted {
-        let bucket = compute_bucket_id(&entry.address, &entry.slot);
-        assert!(bucket >= prev_bucket || prev_bucket == 0);
-        prev_bucket = bucket;
+        let key = compute_tree_key(&entry.address, &entry.tree_index);
+        assert!(key >= prev_key, "Entries should be sorted by tree_key");
+        prev_key = key;
     }
 }
 
@@ -139,8 +153,8 @@ fn test_has_magic_detection() {
 }
 
 #[test]
-fn test_known_entry_lookup() {
-    // Create entries with known addresses/slots
+fn test_known_entry_lookup_with_tree_key() {
+    // Create entries with known addresses/slots using EIP-7864 tree_index
     let known_address: [u8; 20] = [
         0xda, 0xc1, 0x7f, 0x95, 0x8d, 0x2e, 0xe5, 0x23, 0xa2, 0x20, 0x62, 0x06, 0x99, 0x45, 0x97,
         0xc1, 0x3d, 0x83, 0x1e, 0xc7, // USDT address
@@ -152,46 +166,73 @@ fn test_known_entry_lookup() {
         v
     };
 
-    // Create a small database with the known entry plus some others
+    // Create entries using from_storage_slot (computes proper tree_index)
     let mut entries = vec![
-        StorageEntry::new(known_address, known_slot, known_value),
-        StorageEntry::new([0x11; 20], [0x01; 32], [0xaa; 32]),
-        StorageEntry::new([0x22; 20], [0x02; 32], [0xbb; 32]),
+        StorageEntry::from_storage_slot(known_address, known_slot, known_value),
+        StorageEntry::from_storage_slot([0x11; 20], [0x01; 32], [0xaa; 32]),
+        StorageEntry::from_storage_slot([0x22; 20], [0x02; 32], [0xbb; 32]),
     ];
 
-    // Sort by bucket ID
-    entries.sort_by_key(|e| compute_bucket_id(&e.address, &e.slot));
+    // Sort by tree_key (EIP-7864 ordering)
+    entries.sort_by_key(|e| compute_tree_key(&e.address, &e.tree_index));
 
-    // Build bucket counts (simplified - just count per bucket)
-    let mut bucket_counts = vec![0u16; 262_144];
-    for entry in &entries {
-        let bucket = compute_bucket_id(&entry.address, &entry.slot);
-        bucket_counts[bucket] += 1;
-    }
-
-    // Compute cumulative sums
-    let cumulative = inspire_core::bucket_index::compute_cumulative(&bucket_counts);
-
-    // Look up our known entry
-    let target_bucket = compute_bucket_id(&known_address, &known_slot);
-    let start_idx = cumulative[target_bucket] as usize;
-    let count = bucket_counts[target_bucket] as usize;
-
-    // Verify the entry is in the expected range
-    assert!(count > 0, "Bucket should have at least 1 entry");
+    // Compute the expected tree_index for our known slot
+    let expected_tree_index = inspire_core::ubt::compute_storage_tree_index(&known_slot);
 
     // Find our entry in the sorted list
-    let found = entries[start_idx..start_idx + count]
+    let found = entries
         .iter()
-        .any(|e| e.address == known_address && e.slot == known_slot);
+        .any(|e| e.address == known_address && e.tree_index == expected_tree_index);
 
-    assert!(found, "Known entry should be found in bucket range");
+    assert!(found, "Known entry should be found in sorted list");
 
     // Verify the value matches
-    let entry = entries[start_idx..start_idx + count]
+    let entry = entries
         .iter()
-        .find(|e| e.address == known_address && e.slot == known_slot)
+        .find(|e| e.address == known_address && e.tree_index == expected_tree_index)
         .unwrap();
 
     assert_eq!(entry.value, known_value);
+}
+
+#[test]
+fn test_slots_0_63_share_same_stem() {
+    // EIP-7864: slots 0-63 should all have stem_pos = 0
+    let address = [0x42; 20];
+
+    for slot_num in 0..64u8 {
+        let mut slot = [0u8; 32];
+        slot[31] = slot_num;
+        let entry = StorageEntry::from_storage_slot(address, slot, [0xff; 32]);
+
+        // stem_pos is tree_index[0..31], should be all zeros
+        assert_eq!(
+            entry.tree_index[..31],
+            [0u8; 31],
+            "Slot {} should have zero stem_pos",
+            slot_num
+        );
+        // subindex should be 64 + slot_num
+        assert_eq!(
+            entry.tree_index[31],
+            64 + slot_num,
+            "Slot {} should have subindex {}",
+            slot_num,
+            64 + slot_num
+        );
+    }
+}
+
+#[test]
+fn test_slot_64_goes_to_overflow() {
+    let address = [0x42; 20];
+    let mut slot = [0u8; 32];
+    slot[31] = 64;
+
+    let entry = StorageEntry::from_storage_slot(address, slot, [0xff; 32]);
+
+    // Slot 64 should go to overflow stem (MAIN_STORAGE_OFFSET + 64)
+    // tree_index[0] should be 1 (high byte of 256^31)
+    assert_eq!(entry.tree_index[0], 1);
+    assert_eq!(entry.tree_index[31], 64);
 }

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- State export now uses EIP-7864 tree_index instead of raw storage slots (#71)
+  - Renamed `StorageEntry.slot` to `StorageEntry.tree_index` in state_format.rs
+  - Added `StorageEntry::from_storage_slot()` helper that computes proper tree_index
+  - Updated `ShardWriter` to compute tree_key (stem || subindex) for sorting
+  - Updated `gen_test_db` to generate EIP-7864 compliant test databases
+  - Expected stem reduction: 7.5M -> ~60K stems (120x improvement)
+  - Stem index size reduction: 285 MB -> ~2.3 MB
+
 - Fixed cold lane PIR extraction failure caused by GaussianSampler state contamination (#65)
   - `TwoLaneSetup` now uses separate samplers for hot and cold lane setup
   - Previously, sharing a sampler between setups caused cryptographic failures in the second lane

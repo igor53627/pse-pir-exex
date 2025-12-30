@@ -5,7 +5,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use inspire_core::state_format::{StateHeader, StorageEntry, STATE_ENTRY_SIZE, STATE_HEADER_SIZE};
-use tiny_keccak::{Hasher, Keccak};
+use inspire_core::ubt::compute_tree_key;
 
 use crate::rpc::StorageEntry as RpcStorageEntry;
 
@@ -23,26 +23,21 @@ impl ShardWriter {
         }
     }
 
-    /// Compute keccak256(address || slot) for sorting
-    fn entry_sort_key(address: &[u8; 20], slot: &[u8; 32]) -> [u8; 32] {
-        let mut hasher = Keccak::v256();
-        hasher.update(address);
-        hasher.update(slot);
-        let mut output = [0u8; 32];
-        hasher.finalize(&mut output);
-        output
+    /// Compute EIP-7864 tree_key (stem || subindex) for UBT-ordered sorting
+    fn compute_entry_tree_key(entry: &StorageEntry) -> [u8; 32] {
+        compute_tree_key(&entry.address, &entry.tree_index)
     }
 
-    /// Convert RPC entry to core StorageEntry
+    /// Convert RPC entry to core StorageEntry with EIP-7864 tree_index
     fn to_core_entry(entry: &RpcStorageEntry) -> StorageEntry {
         let address: [u8; 20] = entry.address.into_array();
         let slot: [u8; 32] = entry.slot.0;
         let value: [u8; 32] = entry.value.to_be_bytes();
-        StorageEntry::new(address, slot, value)
+        StorageEntry::from_storage_slot(address, slot, value)
     }
 
     /// Write entries to state.bin file
-    /// Entries are sorted by keccak256(address || slot)
+    /// Entries are sorted by tree_key (stem || subindex) per EIP-7864
     pub fn write_state_file(
         &self,
         entries: &[RpcStorageEntry],
@@ -53,13 +48,13 @@ impl ShardWriter {
 
         let output_path = self.data_dir.join("state.bin");
 
-        // Convert and sort entries
+        // Convert and sort entries by tree_key (EIP-7864 ordering)
         let mut sorted_entries: Vec<_> = entries
             .iter()
             .map(|e| {
                 let core = Self::to_core_entry(e);
-                let key = Self::entry_sort_key(&core.address, &core.slot);
-                (key, core)
+                let tree_key = Self::compute_entry_tree_key(&core);
+                (tree_key, core)
             })
             .collect();
 
@@ -138,10 +133,9 @@ mod tests {
     use alloy_primitives::{Address, B256, U256};
 
     #[test]
-    fn test_entry_sort_key() {
-        let addr = [0x42u8; 20];
-        let slot = [0x01u8; 32];
-        let key = ShardWriter::entry_sort_key(&addr, &slot);
+    fn test_compute_entry_tree_key() {
+        let entry = StorageEntry::from_storage_slot([0x42u8; 20], [0x01u8; 32], [0xff; 32]);
+        let key = ShardWriter::compute_entry_tree_key(&entry);
         assert_eq!(key.len(), 32);
     }
 
@@ -176,6 +170,26 @@ mod tests {
         assert_eq!(header.entry_count, 2);
         assert_eq!(header.block_number, 1000);
         assert_eq!(header.chain_id, 11155111);
+
+        // Verify entries have EIP-7864 tree_index (not raw slots)
+        // Both slots (0x01..01 and 0x02..02) are large, so both go to overflow stems
+        // After sorting by tree_key, we just verify the tree_index is properly computed
+        let entry1 = StorageEntry::from_bytes(&data[STATE_HEADER_SIZE..]).unwrap();
+        let entry2 =
+            StorageEntry::from_bytes(&data[STATE_HEADER_SIZE + STATE_ENTRY_SIZE..]).unwrap();
+
+        // Both large slots should have MAIN_STORAGE_OFFSET in high bytes
+        // tree_index = MAIN_STORAGE_OFFSET + slot, so high bytes depend on slot
+        // For 0x01..01 slot: MAIN_STORAGE_OFFSET[0]=1, slot[0]=1, so tree_index[0] could be 2
+        // Just verify they're different from raw slots (which would be 0x01..01 and 0x02..02)
+        assert_ne!(
+            entry1.tree_index, [0x01; 32],
+            "Entry should not have raw slot as tree_index"
+        );
+        assert_ne!(
+            entry2.tree_index, [0x02; 32],
+            "Entry should not have raw slot as tree_index"
+        );
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }

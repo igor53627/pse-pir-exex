@@ -12,8 +12,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use eyre::Result;
-use inspire_core::bucket_index::compute_bucket_id;
 use inspire_core::state_format::{StateHeader, StorageEntry, STATE_ENTRY_SIZE, STATE_HEADER_SIZE};
+use inspire_core::ubt::compute_tree_key;
 use tiny_keccak::{Hasher, Keccak};
 
 #[derive(Parser)]
@@ -39,10 +39,6 @@ struct Args {
     /// Number of unique contracts
     #[arg(long, default_value = "100")]
     contracts: u64,
-
-    /// Sort by bucket ID (required for bucket index)
-    #[arg(long, default_value = "true")]
-    sort: bool,
 }
 
 fn main() -> Result<()> {
@@ -82,14 +78,13 @@ fn main() -> Result<()> {
         // Add pattern to make values recognizable
         value[31] = 0xff;
 
-        entries.push(StorageEntry::new(address, slot, value));
+        // Use from_storage_slot to compute proper EIP-7864 tree_index
+        entries.push(StorageEntry::from_storage_slot(address, slot, value));
     }
 
-    // Sort by bucket ID for bucket index compatibility
-    if args.sort {
-        entries.sort_by_key(|e| compute_bucket_id(&e.address, &e.slot));
-        println!("  Sorted by bucket ID");
-    }
+    // Sort by tree_key (stem || subindex) for EIP-7864 UBT ordering
+    entries.sort_by_key(|e| compute_tree_key(&e.address, &e.tree_index));
+    println!("  Sorted by tree_key (EIP-7864)");
 
     // Create block hash from block number
     let mut block_hash = [0u8; 32];

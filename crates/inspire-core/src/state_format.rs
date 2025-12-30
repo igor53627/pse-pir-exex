@@ -102,22 +102,38 @@ impl StateHeader {
 /// Storage entry (84 bytes)
 ///
 /// Use `to_bytes()` and `from_bytes()` for serialization.
+///
+/// **Important**: The `tree_index` field must be the EIP-7864 tree index,
+/// NOT the raw storage slot. Use `ubt::compute_storage_tree_index()` to
+/// convert raw slots to tree_index format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageEntry {
     /// Contract address (20 bytes)
     pub address: [u8; 20],
-    /// Storage slot key (32 bytes)
-    pub slot: [u8; 32],
-    /// Storage value (32 bytes)
+    /// EIP-7864 tree index (32 bytes): stem_pos[31] || subindex[1]
+    /// Computed from leaf type and logical position per EIP-7864 spec.
+    /// For storage slots, use `ubt::compute_storage_tree_index(slot)`.
+    pub tree_index: [u8; 32],
+    /// Leaf value (32 bytes): storage value, basic_data, code_hash, or code chunk
     pub value: [u8; 32],
 }
 
 impl StorageEntry {
-    /// Create a new entry
-    pub fn new(address: [u8; 20], slot: [u8; 32], value: [u8; 32]) -> Self {
+    /// Create a new entry with a pre-computed tree_index
+    pub fn new(address: [u8; 20], tree_index: [u8; 32], value: [u8; 32]) -> Self {
         Self {
             address,
-            slot,
+            tree_index,
+            value,
+        }
+    }
+
+    /// Create a new entry from a raw storage slot (computes tree_index automatically)
+    pub fn from_storage_slot(address: [u8; 20], slot: [u8; 32], value: [u8; 32]) -> Self {
+        let tree_index = crate::ubt::compute_storage_tree_index(&slot);
+        Self {
+            address,
+            tree_index,
             value,
         }
     }
@@ -126,7 +142,7 @@ impl StorageEntry {
     pub fn to_bytes(&self) -> [u8; STATE_ENTRY_SIZE] {
         let mut buf = [0u8; STATE_ENTRY_SIZE];
         buf[0..20].copy_from_slice(&self.address);
-        buf[20..52].copy_from_slice(&self.slot);
+        buf[20..52].copy_from_slice(&self.tree_index);
         buf[52..84].copy_from_slice(&self.value);
         buf
     }
@@ -139,7 +155,7 @@ impl StorageEntry {
 
         Ok(Self {
             address: data[0..20].try_into().unwrap(),
-            slot: data[20..52].try_into().unwrap(),
+            tree_index: data[20..52].try_into().unwrap(),
             value: data[52..84].try_into().unwrap(),
         })
     }
@@ -219,13 +235,41 @@ mod tests {
 
     #[test]
     fn test_entry_roundtrip() {
-        let entry = StorageEntry::new([0x42; 20], [0x01; 32], [0xff; 32]);
+        let tree_index = [0x01; 32];
+        let entry = StorageEntry::new([0x42; 20], tree_index, [0xff; 32]);
 
         let bytes = entry.to_bytes();
         assert_eq!(bytes.len(), STATE_ENTRY_SIZE);
 
         let recovered = StorageEntry::from_bytes(&bytes).unwrap();
         assert_eq!(recovered, entry);
+    }
+
+    #[test]
+    fn test_from_storage_slot() {
+        let address = [0x42; 20];
+        let slot = [0u8; 32]; // Slot 0
+        let value = [0xff; 32];
+
+        let entry = StorageEntry::from_storage_slot(address, slot, value);
+
+        // Slot 0 should map to tree_index with subindex 64 (HEADER_STORAGE_OFFSET)
+        assert_eq!(entry.tree_index[..31], [0u8; 31]);
+        assert_eq!(entry.tree_index[31], 64);
+    }
+
+    #[test]
+    fn test_from_storage_slot_large() {
+        let address = [0x42; 20];
+        let mut slot = [0u8; 32];
+        slot[31] = 64; // Slot 64 -> overflow stem
+        let value = [0xff; 32];
+
+        let entry = StorageEntry::from_storage_slot(address, slot, value);
+
+        // Slot 64 goes to overflow stem (MAIN_STORAGE_OFFSET + 64)
+        assert_eq!(entry.tree_index[0], 1); // MAIN_STORAGE_OFFSET high byte
+        assert_eq!(entry.tree_index[31], 64); // subindex = 64
     }
 
     #[test]
