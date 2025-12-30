@@ -38,8 +38,8 @@ struct Args {
     #[arg(long)]
     output: PathBuf,
 
-    /// Entry size for PIR (32 = values only, 84 = full records)
-    #[arg(long, default_value = "32")]
+    /// Entry size for PIR (32 = values only, 84 = full records with key)
+    #[arg(long, default_value = "84")]
     entry_size: usize,
 
     /// Maximum entries to encode (0 = all)
@@ -122,7 +122,9 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Cold lane is empty (single-lane mode for now)
-    let cold_data: Vec<u8> = vec![0u8; pir_entry_size]; // At least 1 entry
+    // Need at least ring_dim entries to avoid edge case in PIR encoding
+    let min_cold_entries = if args.test_params { 256 } else { 2048 };
+    let cold_data: Vec<u8> = vec![0u8; pir_entry_size * min_cold_entries];
 
     // Run PIR setup
     let params = if args.test_params {
