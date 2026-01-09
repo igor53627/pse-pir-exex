@@ -2,6 +2,8 @@
 
 The server supports hot-reloading lane databases without restart or query interruption.
 
+See `docs/ARCHITECTURE.md` for the broader pipeline context.
+
 ## Architecture
 
 ```

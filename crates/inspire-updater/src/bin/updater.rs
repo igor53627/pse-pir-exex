@@ -23,6 +23,10 @@ struct Args {
     #[arg(long)]
     admin_rpc_url: Option<String>,
 
+    /// ubt-exex RPC URL or IPC path (for ubt_* methods)
+    #[arg(long)]
+    ubt_rpc_url: Option<String>,
+
     /// PIR server URL
     #[arg(long, default_value = "http://localhost:3000")]
     pir_server: String,
@@ -50,6 +54,10 @@ struct Args {
     /// Ethereum chain ID (default: 11155111 for Sepolia)
     #[arg(long, default_value = "11155111")]
     chain_id: u64,
+
+    /// Run initial sync once and exit
+    #[arg(long)]
+    one_shot: bool,
 }
 
 #[tokio::main]
@@ -65,68 +73,103 @@ async fn main() -> anyhow::Result<()> {
     let config = UpdaterConfig {
         rpc_url: args.rpc_url,
         admin_rpc_url: args.admin_rpc_url,
+        ubt_rpc_url: args.ubt_rpc_url,
         pir_server_url: args.pir_server,
         data_dir: args.data_dir,
         poll_interval: Duration::from_millis(args.poll_interval_ms),
         max_blocks_per_fetch: 100,
         chain_id: args.chain_id,
+        one_shot: args.one_shot,
     };
 
     if args.check {
         // Just check connection
-        let rpc = inspire_updater::EthrexClient::new(&config.rpc_url, config.admin_rpc_url).await?;
-        let block = rpc.block_number().await?;
+        let rpc = inspire_updater::EthrexClient::new(
+            &config.rpc_url,
+            config.admin_rpc_url.clone(),
+            config.ubt_rpc_url.clone(),
+        )
+        .await?;
+        let block = rpc.head_block().await?;
         println!("[OK] Connected to ethrex at block {}", block);
         return Ok(());
     }
 
     if let Some(limit) = args.dump_test {
         // Test pir_dumpStorage
-        let rpc = inspire_updater::EthrexClient::new(&config.rpc_url, config.admin_rpc_url.clone())
-            .await?;
-        let resp = rpc.pir_dump_storage(None, limit).await?;
-        println!(
-            "[OK] pir_dumpStorage returned {} entries (has_more: {})",
-            resp.entries.len(),
-            resp.has_more
-        );
-        for entry in resp.entries.iter().take(5) {
-            println!("  {} slot {} = {}", entry.address, entry.slot, entry.value);
-        }
-        if resp.entries.len() > 5 {
-            println!("  ... and {} more", resp.entries.len() - 5);
+        let rpc = inspire_updater::EthrexClient::new(
+            &config.rpc_url,
+            config.admin_rpc_url.clone(),
+            config.ubt_rpc_url.clone(),
+        )
+        .await?;
+        if rpc.state_mode() == inspire_updater::StateRpcMode::UbtExex {
+            let resp = rpc
+                .ubt_export_state(&config.data_dir, config.chain_id)
+                .await?;
+            println!(
+                "[OK] ubt_exportState wrote {} entries to {}",
+                resp.entry_count, resp.state_file
+            );
+        } else {
+            let resp = rpc.pir_dump_storage(None, limit).await?;
+            println!(
+                "[OK] pir_dumpStorage returned {} entries (has_more: {})",
+                resp.entries.len(),
+                resp.has_more
+            );
+            for entry in resp.entries.iter().take(5) {
+                println!("  {} slot {} = {}", entry.address, entry.slot, entry.value);
+            }
+            if resp.entries.len() > 5 {
+                println!("  ... and {} more", resp.entries.len() - 5);
+            }
         }
         return Ok(());
     }
 
     if let Some(blocks) = args.delta_test {
         // Test pir_getStateDelta
-        let rpc = inspire_updater::EthrexClient::new(&config.rpc_url, config.admin_rpc_url.clone())
-            .await?;
-        let current = rpc.block_number().await?;
+        let rpc = inspire_updater::EthrexClient::new(
+            &config.rpc_url,
+            config.admin_rpc_url.clone(),
+            config.ubt_rpc_url.clone(),
+        )
+        .await?;
+        let current = rpc.head_block().await?;
         let from = current.saturating_sub(blocks);
         println!("Fetching deltas from block {} to {}", from, current);
-        let resp = rpc.pir_get_state_delta(from, current).await?;
-        println!(
-            "[OK] pir_getStateDelta: {} total deltas across {} blocks",
-            resp.total_deltas,
-            resp.blocks.len()
-        );
-        for block in resp.blocks.iter().take(3) {
+        if rpc.state_mode() == inspire_updater::StateRpcMode::UbtExex {
+            let resp = rpc
+                .ubt_get_state_delta(from, current, &config.data_dir, config.chain_id)
+                .await?;
             println!(
-                "  Block {}: {} deltas",
-                block.block_number,
-                block.deltas.len()
+                "[OK] ubt_getStateDelta: {} entries written to {}",
+                resp.entry_count, resp.delta_file
             );
-            for delta in block.deltas.iter().take(2) {
+        } else {
+            let resp = rpc.pir_get_state_delta(from, current).await?;
+            println!(
+                "[OK] pir_getStateDelta: {} total deltas across {} blocks",
+                resp.total_deltas,
+                resp.blocks.len()
+            );
+            for block in resp.blocks.iter().take(3) {
                 println!(
-                    "    {} slot {} = {}",
-                    delta.address, delta.slot, delta.value
+                    "  Block {}: {} deltas",
+                    block.block_number,
+                    block.deltas.len()
                 );
+                for delta in block.deltas.iter().take(2) {
+                    println!(
+                        "    {} slot {} = {}",
+                        delta.address, delta.slot, delta.value
+                    );
+                }
             }
-        }
-        if resp.blocks.len() > 3 {
-            println!("  ... and {} more blocks", resp.blocks.len() - 3);
+            if resp.blocks.len() > 3 {
+                println!("  ... and {} more blocks", resp.blocks.len() - 3);
+            }
         }
         return Ok(());
     }

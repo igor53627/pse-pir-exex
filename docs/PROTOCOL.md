@@ -5,6 +5,8 @@ state queries, as implemented in [`inspire-rs`] and extended by `inspire-exex`.
 
 [`inspire-rs`]: https://github.com/igor53627/inspire-rs
 
+See `docs/ARCHITECTURE.md` for the current end-to-end data flow and storage layout.
+
 ## Version Note
 
 > **Initial Version**: The initial implementation uses a **single lane**

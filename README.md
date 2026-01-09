@@ -58,33 +58,38 @@ Latency scales with database size. For smaller databases (~10K entries), expect 
 |                         inspire-exex                                |
 +---------------------------------------------------------------------+
 |                                                                     |
-|  +-----------------+    +----------------------+                    |
-|  | ethrex          |--->| ethrex-pir-export    |                    |
-|  | (UBT sync)      |    | (iterate PLAIN_STORAGE)                   |
-|  +-----------------+    +----------------------+                    |
-|        |                         |                                  |
-|        | UBT state               | state.bin (stem-ordered)         |
-|        v                         v                                  |
+|  +-----------------+    +-------------------------+                 |
+|  | reth            |--->| ubt-exex (ExEx plugin)  |                 |
+|  | (chain sync)    |    |                         |                 |
+|  +-----------------+    |  - NOMT (values)        |                 |
+|                         |  - key-index.redb       |                 |
+|                         |  - MDBX (deltas only)   |                 |
+|                         +-----------+-------------+                 |
+|                                     | ubt_exportState               |
+|                                     v                               |
+|                           state.bin + stem-index.bin                |
+|                                     |                               |
+|                                     v                               |
 |  +--------------------------------------------------------------+   |
-|  |                    inspire-setup                             |   |
-|  |                    (encode PIR database)                     |   |
+|  |                lane-builder (state-to-pir)                   |   |
+|  |                Encode PIR DB + CRS + config                  |   |
 |  +--------------------------------------------------------------+   |
 |                              |                                      |
-|                              | db.bin (PIR database)                |
 |                              v                                      |
 |  +--------------------------------------------------------------+   |
 |  |                    inspire-server                            |   |
 |  |                    (PIR query endpoint)                      |   |
 |  +--------------------------------------------------------------+   |
 |                              |                                      |
-|                              | PIR queries                          |
 |                              v                                      |
 |  +--------------------------------------------------------------+   |
-|  |  inspire-client (native) / inspire-client-wasm (browser)     |   |
-|  |  Client computes index = stem_to_db_offset(stem) + subindex  |   |
+|  |  inspire-client / inspire-client-wasm                         |   |
+|  |  Client computes index = stem_offset(stem) + subindex          |   |
 |  +--------------------------------------------------------------+   |
 |                                                                     |
 +---------------------------------------------------------------------+
+
+See `docs/ARCHITECTURE.md` for detailed data stores and flow.
 ```
 
 ## Components
@@ -109,16 +114,19 @@ Latency scales with database size. For smaller databases (~10K entries), expect 
 ## Data Flow
 
 ```
-1. Export State from ethrex
-   ethrex (UBT sync)  -->  ethrex-pir-export  -->  state.bin (stem-ordered)
-   
-2. Encode PIR Database
-   state.bin + inspire-setup  -->  db.bin (PIR-encoded database)
-   
-3. Serve Queries
-   db.bin + inspire-server  -->  HTTP endpoint (port 3000)
-   
-4. Query Privately
+1. Maintain UBT state
+   reth + ubt-exex  -->  NOMT (values) + key-index.redb (keys)
+
+2. Export snapshot
+   ubt_exportState  -->  state.bin + stem-index.bin
+
+3. Encode PIR Database
+   state.bin + state-to-pir  -->  PIR DB + CRS + config
+
+4. Serve Queries
+   PIR DB + inspire-server  -->  HTTP endpoint (port 3000)
+
+5. Query Privately
    Client computes stem from (address, slot) using EIP-7864
    inspire-client  -->  PIR query  -->  server  -->  encrypted response
 ```
@@ -126,17 +134,23 @@ Latency scales with database size. For smaller databases (~10K entries), expect 
 ### Binary Usage
 
 ```bash
-# 1. Export state from ethrex
-ethrex-pir-export --datadir /path/to/ethrex --output state.bin
+# 1. Export state from ubt-exex (NOMT + key-index)
+cargo run -p inspire-updater --bin updater -- \
+  --rpc-url http://localhost:8545 \
+  --ubt-rpc-url /tmp/ubt-exex.ipc \
+  --data-dir ./pir-data \
+  --one-shot
 
 # 2. Encode PIR database
-inspire-setup state.bin db.bin
+cargo run -p lane-builder --bin state-to-pir -- \
+  --input ./pir-data/state.bin \
+  --output ./pir-data
 
 # 3. Start server
-inspire-server db.bin --port 3000
+cargo run -p inspire-server --bin main
 
 # 4. Query (client computes index from stem + subindex)
-inspire-client http://localhost:3000 --stem 0x... --subindex 0
+cargo run -p inspire-client --bin main -- http://localhost:3000 --stem 0x... --subindex 0
 ```
 
 ### Index Computation (EIP-7864)

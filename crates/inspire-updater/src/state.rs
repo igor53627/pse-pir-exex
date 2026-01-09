@@ -28,6 +28,10 @@ impl StateTracker {
         self.last_block
     }
 
+    pub fn set_last_block(&mut self, block: u64) {
+        self.last_block = Some(block);
+    }
+
     /// Apply entries and return ones that changed
     pub fn apply_entries(&mut self, block: u64, entries: Vec<StorageEntry>) -> Vec<StorageEntry> {
         let mut changed = Vec::new();
