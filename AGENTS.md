@@ -87,6 +87,23 @@ cargo build -p lane-builder --release
 
 See GitHub issues for current work items.
 
+## GitHub Issue Guidelines
+
+When creating GitHub issues with `gh issue create`:
+- Use actual newlines in the body, NOT literal `\n` characters
+- Pass body via heredoc to preserve formatting:
+  ```bash
+  gh issue create --title "Title" --body "$(cat <<'EOF'
+  First paragraph.
+
+  Second paragraph with bullet points:
+  - Item 1
+  - Item 2
+  EOF
+  )"
+  ```
+- Do NOT use string escapes like `"Line 1\n\nLine 2"` - this creates literal `\n` text
+
 ## Privacy Notes
 
 - Hot vs cold lane choice leaks popularity tier (acceptable)
