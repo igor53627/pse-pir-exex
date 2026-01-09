@@ -2,6 +2,8 @@
 
 This document specifies the `state.bin` format for PIR database generation.
 
+See `docs/ARCHITECTURE.md` for the end-to-end pipeline that produces this file.
+
 ## Format Overview
 
 ```

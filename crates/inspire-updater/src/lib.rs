@@ -29,8 +29,8 @@ mod writer;
 pub use config::UpdaterConfig;
 pub use delta_writer::RangeDeltaWriter;
 pub use rpc::{
-    BlockDeltas, DumpStorageResponse, EthrexClient, StateDeltaResponse, StorageEntry,
-    UbtRootResponse,
+    BlockDeltas, DumpStorageResponse, EthrexClient, StateDeltaResponse, StateRpcMode, StorageEntry,
+    UbtExportStateResult, UbtRootResponse, UbtStateDeltaResult,
 };
 pub use service::{ReloadClient, UpdaterService};
 pub use state::StateTracker;

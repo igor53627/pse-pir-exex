@@ -114,6 +114,7 @@ metrics-exporter-prometheus = "0.16"
 
 # Alloy for RPC access (gas backfill) - must match reth v1.9.3's alloy version
 alloy-provider = { version = "1.1", features = ["reqwest"] }
+alloy-rpc-client = { version = "1.1", features = ["reqwest", "ipc"] }
 alloy-rpc-types = "1.1"
 alloy-primitives = "1.5"
 alloy-transport = "1.1"

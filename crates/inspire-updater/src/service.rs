@@ -5,7 +5,7 @@ use tracing::{error, info, warn};
 
 use crate::config::UpdaterConfig;
 use crate::delta_writer::RangeDeltaWriter;
-use crate::rpc::EthrexClient;
+use crate::rpc::{EthrexClient, StateRpcMode};
 use crate::state::StateTracker;
 use crate::writer::ShardWriter;
 
@@ -60,7 +60,12 @@ pub struct UpdaterService {
 
 impl UpdaterService {
     pub async fn new(config: UpdaterConfig) -> anyhow::Result<Self> {
-        let rpc = EthrexClient::new(&config.rpc_url, config.admin_rpc_url.clone()).await?;
+        let rpc = EthrexClient::new(
+            &config.rpc_url,
+            config.admin_rpc_url.clone(),
+            config.ubt_rpc_url.clone(),
+        )
+        .await?;
         let state = StateTracker::new();
         let writer = ShardWriter::new(&config.data_dir, config.chain_id);
         let reload = ReloadClient::new(&config.pir_server_url);
@@ -83,9 +88,37 @@ impl UpdaterService {
 
     /// Perform initial sync by dumping all storage
     pub async fn initial_sync(&mut self) -> anyhow::Result<()> {
+        if self.rpc.state_mode() == StateRpcMode::UbtExex {
+            info!("Starting initial sync via ubt_exportState");
+
+            let export = self
+                .rpc
+                .ubt_export_state(&self.config.data_dir, self.config.chain_id)
+                .await?;
+
+            self.state.set_last_block(export.block_number);
+            self.ubt_verified = true;
+
+            info!(
+                block = export.block_number,
+                root = %hex::encode(export.root.0),
+                entries = export.entry_count,
+                stems = export.stem_count,
+                state_file = %export.state_file,
+                stem_index = %export.stem_index_file,
+                "UBT state export complete"
+            );
+
+            if let Err(e) = self.reload.reload().await {
+                warn!(error = %e, "Failed to trigger PIR reload after initial sync");
+            }
+
+            return Ok(());
+        }
+
         info!("Starting initial sync via pir_dumpStorage");
 
-        let current_block = self.rpc.block_number().await?;
+        let current_block = self.rpc.head_block().await?;
 
         let entries = self
             .rpc
@@ -145,12 +178,18 @@ impl UpdaterService {
         info!(
             rpc = %self.config.rpc_url,
             pir_server = %self.config.pir_server_url,
+            mode = ?self.rpc.state_mode(),
             "Starting updater service"
         );
 
         // If no state, do initial sync
         if self.state.last_block().is_none() {
             self.initial_sync().await?;
+        }
+
+        if self.config.one_shot {
+            info!("One-shot mode enabled; exiting after initial sync");
+            return Ok(());
         }
 
         // Check PIR server health
@@ -170,7 +209,7 @@ impl UpdaterService {
     }
 
     async fn poll_once(&mut self) -> anyhow::Result<()> {
-        let current_block = self.rpc.block_number().await?;
+        let current_block = self.rpc.head_block().await?;
         let last_block = self.state.last_block().unwrap_or(0);
 
         if current_block <= last_block {
@@ -184,6 +223,46 @@ impl UpdaterService {
         let blocks_behind = current_block - last_block;
 
         if blocks_behind > 0 {
+            if self.rpc.state_mode() == StateRpcMode::UbtExex {
+                let to_block = current_block.min(last_block + self.config.max_blocks_per_fetch);
+
+                info!(
+                    current_block,
+                    last_block,
+                    fetching_to = to_block,
+                    blocks_behind,
+                    "Fetching UBT state delta"
+                );
+
+                let delta = self
+                    .rpc
+                    .ubt_get_state_delta(
+                        last_block + 1,
+                        to_block,
+                        &self.config.data_dir,
+                        self.config.chain_id,
+                    )
+                    .await?;
+
+                info!(
+                    from = delta.from_block,
+                    to = delta.to_block,
+                    head = delta.head_block,
+                    entries = delta.entry_count,
+                    file = %delta.delta_file,
+                    "UBT delta export complete"
+                );
+
+                self.state.set_last_block(delta.to_block);
+                self.ubt_verified = true;
+
+                if let Err(e) = self.reload.reload().await {
+                    warn!(error = %e, "Failed to trigger PIR reload after delta export");
+                }
+
+                return Ok(());
+            }
+
             // Use pir_getStateDelta for efficient incremental updates
             let to_block = current_block.min(last_block + self.config.max_blocks_per_fetch);
 
