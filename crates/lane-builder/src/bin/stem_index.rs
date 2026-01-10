@@ -7,7 +7,7 @@
 //!   stem-index --input state.bin --output stem-index.bin
 //!
 //! Output format:
-//!   count:4 (LE u32) + (stem:31 + offset:8 (LE u64))*
+//!   count:8 (LE u64) + (stem:31 + offset:8 (LE u64))*
 //!
 //! The stem index maps each unique stem to its starting offset in the PIR database.
 //! Entries must be sorted by tree_key (stem || subindex) in the input state.bin.
@@ -105,8 +105,8 @@ fn main() -> anyhow::Result<()> {
     let out_file = File::create(&args.output)?;
     let mut writer = BufWriter::new(out_file);
 
-    // Header: count as u32 LE
-    let count = stem_offsets.len() as u32;
+    // Header: count as u64 LE
+    let count = stem_offsets.len() as u64;
     writer.write_all(&count.to_le_bytes())?;
 
     // Entries: stem:31 + offset:8, sorted by stem (BTreeMap maintains order)
@@ -131,10 +131,10 @@ fn main() -> anyhow::Result<()> {
         tracing::info!("Verifying stem index...");
         let verify_data = std::fs::read(&args.output)?;
 
-        let verify_count = u32::from_le_bytes(verify_data[0..4].try_into().unwrap()) as usize;
+        let verify_count = u64::from_le_bytes(verify_data[0..8].try_into().unwrap()) as usize;
         assert_eq!(verify_count, stem_offsets.len(), "Count mismatch");
 
-        let mut offset = 4;
+        let mut offset = 8;
         let mut prev_stem: Option<Stem> = None;
         for (expected_stem, expected_offset) in &stem_offsets {
             let stem: Stem = verify_data[offset..offset + 31].try_into().unwrap();

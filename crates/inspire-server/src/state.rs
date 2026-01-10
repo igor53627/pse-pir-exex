@@ -160,12 +160,12 @@ impl CachedBucketIndex {
 
 /// Cached stem index with entry count
 ///
-/// Format: count:4 + (stem:31 + offset:8)* - same as StemIndex in inspire-client-wasm
+/// Format: count:8 + (stem:31 + offset:8)* - same as StemIndex in inspire-client-wasm
 pub struct CachedStemIndex {
-    /// Raw binary data (count:4 + (stem:31 + offset:8)*)
+    /// Raw binary data (count:8 + (stem:31 + offset:8)*)
     pub data: Vec<u8>,
     /// Number of stems in the index
-    pub stem_count: u32,
+    pub stem_count: u64,
     /// Total entries in the database
     pub total_entries: u64,
 }
@@ -173,12 +173,15 @@ pub struct CachedStemIndex {
 impl CachedStemIndex {
     /// Parse stem index from raw bytes
     pub fn from_bytes(data: Vec<u8>) -> Option<Self> {
-        if data.len() < 4 {
+        if data.len() < 8 {
             return None;
         }
-        let stem_count = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+        let stem_count = u64::from_le_bytes([
+            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+        ]);
         // Each entry is 31 bytes (stem) + 8 bytes (offset) = 39 bytes
-        let expected_len = 4 + (stem_count as usize) * 39;
+        let expected_len = 8usize
+            .checked_add((stem_count as usize).checked_mul(39)?)?;
         if data.len() != expected_len {
             return None;
         }

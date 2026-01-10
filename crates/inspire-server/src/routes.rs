@@ -324,7 +324,7 @@ pub struct BucketIndexInfo {
 /// Stem index metadata
 #[derive(Serialize)]
 pub struct StemIndexInfo {
-    pub stem_count: u32,
+    pub stem_count: u64,
     pub total_entries: u64,
     pub block_number: Option<u64>,
 }
@@ -347,7 +347,7 @@ pub struct RangeInfo {
 /// Get stem index (binary)
 ///
 /// Returns the stem index for stem-ordered databases.
-/// Format: count:4 + (stem:31 + offset:8)*
+/// Format: count:8 + (stem:31 + offset:8)*
 async fn get_stem_index(State(state): State<SharedState>) -> Result<Response> {
     let snapshot = state.load_snapshot();
 

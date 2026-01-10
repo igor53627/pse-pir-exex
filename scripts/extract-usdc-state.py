@@ -183,7 +183,7 @@ def build_stem_index(entries: List[Tuple[bytes, bytes, bytes]], output_path: str
     
     # Write index
     with open(output_path, "wb") as f:
-        f.write(struct.pack("<I", len(sorted_stems)))
+        f.write(struct.pack("<Q", len(sorted_stems)))
         for stem in sorted_stems:
             f.write(stem)  # 31 bytes
             f.write(struct.pack("<Q", stem_to_offset[stem]))  # 8 bytes

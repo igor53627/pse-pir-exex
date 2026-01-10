@@ -9,7 +9,15 @@ default = []
 # Enable dev-keys feature to allow saving secret keys (for testing/development only)
 dev-keys = []
 # Enable Reth ExEx integration for real-time lane updates
-exex = ["dep:reth-ethereum", "dep:reth-tracing", "dep:eyre", "dep:futures", "dep:clap", "dep:metrics"]
+exex = [
+    "dep:reth-ethereum",
+    "dep:reth-tracing",
+    "dep:eyre",
+    "dep:futures",
+    "dep:clap",
+    "dep:metrics",
+    "dep:reth-storage-api",
+]
 # Enable gas backfill for data-driven hot lane selection
 backfill = ["dep:alloy-provider", "dep:alloy-rpc-types", "dep:alloy-primitives", "dep:alloy-transport", "dep:futures", "dep:clap", "dep:indicatif"]
 # Enable balance extraction for ETH/USDC hot lane
@@ -26,6 +34,8 @@ state-to-pir = ["dep:clap"]
 pir-test = ["dep:clap"]
 # Enable stem index generator
 stem-index = ["dep:clap"]
+# Export UBT-ordered state.bin from vanilla reth DB
+reth-export = ["dep:reth-db", "dep:clap", "dep:indicatif"]
 
 [[bin]]
 name = "lane-builder"
@@ -34,6 +44,11 @@ path = "src/bin/main.rs"
 [[bin]]
 name = "lane-exex"
 path = "src/bin/exex.rs"
+required-features = ["exex"]
+
+[[bin]]
+name = "delta-exex"
+path = "src/bin/delta_exex.rs"
 required-features = ["exex"]
 
 [[bin]]
@@ -76,6 +91,11 @@ name = "stem-index"
 path = "src/bin/stem_index.rs"
 required-features = ["stem-index"]
 
+[[bin]]
+name = "reth-state-export"
+path = "src/bin/reth_state_export.rs"
+required-features = ["reth-export"]
+
 [dependencies]
 inspire-core = { path = "../inspire-core" }
 inspire-pir = { workspace = true }
@@ -106,6 +126,10 @@ indicatif = { workspace = true, optional = true }
 # MDBX for direct state dump
 mdbx-rs = { git = "https://github.com/igor53627/mdbx-rs", optional = true }
 color-eyre = { version = "0.6", optional = true }
+
+# Reth DB access (vanilla reth export)
+reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.9.3", optional = true }
+reth-storage-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.9.3", optional = true }
 
 # Bucket index builder
 tiny-keccak = { version = "2.0", features = ["keccak"], optional = true }

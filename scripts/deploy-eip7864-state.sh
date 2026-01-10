@@ -106,7 +106,7 @@ echo ""
 # Step 5: Verify stem count (expected ~60K, not millions)
 echo "[5/6] Verifying stem count..."
 STEM_INDEX_SIZE=$(run_remote "stat -c%s $DATA_DIR/stem-index.bin")
-STEM_COUNT=$(( (STEM_INDEX_SIZE - 4) / 39 ))
+STEM_COUNT=$(( (STEM_INDEX_SIZE - 8) / 39 ))
 echo "Stem index size: $STEM_INDEX_SIZE bytes"
 echo "Estimated stems: $STEM_COUNT"
 

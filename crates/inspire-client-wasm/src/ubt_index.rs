@@ -181,17 +181,20 @@ pub struct StemIndex {
 impl StemIndex {
     /// Create a stem index from binary data.
     ///
-    /// Format: `count:4 + (stem:31 + offset:8)*`
+    /// Format: `count:8 + (stem:31 + offset:8)*`
     #[wasm_bindgen(constructor)]
     pub fn from_bytes(data: &[u8]) -> Result<StemIndex, JsValue> {
-        const HEADER_SIZE: usize = 4;
+        const HEADER_SIZE: usize = 8;
         const ENTRY_SIZE: usize = 39; // 31 bytes stem + 8 bytes offset
 
         if data.len() < HEADER_SIZE {
             return Err(JsValue::from_str("Data too short for stem index header"));
         }
 
-        let count = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
+        let count = u64::from_le_bytes(data[0..8].try_into().unwrap());
+        let count: usize = count
+            .try_into()
+            .map_err(|_| JsValue::from_str("Stem count overflow"))?;
 
         // Use checked arithmetic to prevent overflow on 32-bit WASM
         let payload_size = count
@@ -436,7 +439,7 @@ mod tests {
     fn test_stem_index_from_bytes() {
         // Create test data: 2 stems
         let mut data = Vec::new();
-        data.extend_from_slice(&2u32.to_le_bytes()); // count
+        data.extend_from_slice(&2u64.to_le_bytes()); // count
 
         // Stem 1: all zeros, offset 0
         data.extend_from_slice(&[0u8; 31]);
@@ -481,9 +484,9 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_stem_index_overflow_rejected() {
-        // Create malicious data with u32::MAX count
-        let mut data = vec![0u8; 4];
-        data[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        // Create malicious data with u64::MAX count
+        let mut data = vec![0u8; 8];
+        data[0..8].copy_from_slice(&u64::MAX.to_le_bytes());
 
         let result = StemIndex::from_bytes(&data);
         assert!(result.is_err());
@@ -492,8 +495,8 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_stem_index_truncated_rejected() {
         // Claim 10 entries but provide only header
-        let mut data = vec![0u8; 4];
-        data[0..4].copy_from_slice(&10u32.to_le_bytes());
+        let mut data = vec![0u8; 8];
+        data[0..8].copy_from_slice(&10u64.to_le_bytes());
 
         let result = StemIndex::from_bytes(&data);
         assert!(result.is_err());

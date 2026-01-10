@@ -224,7 +224,7 @@ def main():
     stem_index_path = f"{output_dir}/stem-index.bin"
     
     with open(stem_index_path, "wb") as f:
-        f.write(struct.pack("<I", len(entries)))
+        f.write(struct.pack("<Q", len(entries)))
         for idx, (stem, subindex, _, _, _) in enumerate(entries):
             f.write(stem)  # 31 bytes
             f.write(struct.pack("<Q", idx))  # 8 bytes - direct PIR index
