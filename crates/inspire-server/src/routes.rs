@@ -13,7 +13,9 @@ use tower_http::cors::CorsLayer;
 use crate::broadcast::handle_index_subscription;
 
 use inspire_core::Lane;
-use inspire_pir::{params::ShardConfig, ClientQuery, SeededClientQuery, ServerResponse};
+use inspire_pir::{
+    params::ShardConfig, ClientQuery, SeededClientQuery, ServerResponse, SwitchedClientQuery,
+};
 
 use crate::error::{Result, ServerError};
 use crate::metrics;
@@ -44,6 +46,12 @@ pub struct QueryRequest {
 #[derive(Deserialize)]
 pub struct SeededQueryRequest {
     pub query: SeededClientQuery,
+}
+
+/// Switched PIR query request (~75% smaller)
+#[derive(Deserialize)]
+pub struct SwitchedQueryRequest {
+    pub query: SwitchedClientQuery,
 }
 
 /// PIR query response
@@ -208,6 +216,43 @@ async fn query_seeded_binary(
     State(state): State<SharedState>,
     Path(lane): Path<String>,
     Json(req): Json<SeededQueryRequest>,
+) -> Result<Response> {
+    let lane = parse_lane(&lane)?;
+
+    let expanded_query = req.query.expand();
+
+    let snapshot = state.load_snapshot_full();
+    let response = snapshot.process_query(lane, &expanded_query)?;
+
+    let binary = response
+        .to_binary()
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    Ok(([(header::CONTENT_TYPE, "application/octet-stream")], binary).into_response())
+}
+
+/// Process a switched PIR query (~75% smaller, server expands)
+async fn query_switched(
+    State(state): State<SharedState>,
+    Path(lane): Path<String>,
+    Json(req): Json<SwitchedQueryRequest>,
+) -> Result<Json<QueryResponse>> {
+    let lane = parse_lane(&lane)?;
+
+    // Expand switched query to full query (modulus switch + seed expansion)
+    let expanded_query = req.query.expand();
+
+    let snapshot = state.load_snapshot_full();
+    let response = snapshot.process_query(lane, &expanded_query)?;
+
+    Ok(Json(QueryResponse { response, lane }))
+}
+
+/// Process a switched PIR query with binary response
+async fn query_switched_binary(
+    State(state): State<SharedState>,
+    Path(lane): Path<String>,
+    Json(req): Json<SwitchedQueryRequest>,
 ) -> Result<Response> {
     let lane = parse_lane(&lane)?;
 
@@ -483,6 +528,8 @@ pub fn create_public_router_with_metrics(
         .route("/query/:lane/binary", post(query_binary))
         .route("/query/:lane/seeded", post(query_seeded))
         .route("/query/:lane/seeded/binary", post(query_seeded_binary))
+        .route("/query/:lane/switched", post(query_switched))
+        .route("/query/:lane/switched/binary", post(query_switched_binary))
         .route("/index", get(get_bucket_index))
         .route("/index/raw", get(get_bucket_index_raw))
         .route("/index/info", get(get_bucket_index_info))
@@ -534,6 +581,8 @@ pub fn create_router_with_metrics(
         .route("/query/:lane/binary", post(query_binary))
         .route("/query/:lane/seeded", post(query_seeded))
         .route("/query/:lane/seeded/binary", post(query_seeded_binary))
+        .route("/query/:lane/switched", post(query_switched))
+        .route("/query/:lane/switched/binary", post(query_switched_binary))
         .route("/index", get(get_bucket_index))
         .route("/index/raw", get(get_bucket_index_raw))
         .route("/index/info", get(get_bucket_index_info))

@@ -13,9 +13,9 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 3 {
-        eprintln!("Usage: {} <server_url> <contract_address> [slot]", args[0]);
+        eprintln!("Usage: {} <server_url> <contract_address> [slot] [--switched]", args[0]);
         eprintln!(
-            "Example: {} http://localhost:3000 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 0x00",
+            "Example: {} http://localhost:3000 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 0x00 --switched",
             args[0]
         );
         std::process::exit(1);
@@ -23,7 +23,15 @@ async fn main() -> anyhow::Result<()> {
 
     let server_url = &args[1];
     let contract_hex = &args[2];
-    let slot_hex = args.get(3).map(|s| s.as_str()).unwrap_or("0x00");
+    let mut slot_hex = "0x00";
+    let mut use_switched = false;
+    for arg in args.iter().skip(3) {
+        if arg == "--switched" {
+            use_switched = true;
+        } else {
+            slot_hex = arg;
+        }
+    }
 
     let contract = parse_address(contract_hex)?;
     let slot = parse_slot(slot_hex)?;
@@ -32,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut client = ClientBuilder::new(server_url)
         .manifest(&manifest_path)
+        .switched_query(use_switched)
         .build()?;
 
     let lane = client.get_lane(&contract);

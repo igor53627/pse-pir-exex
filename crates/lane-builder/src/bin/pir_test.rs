@@ -7,7 +7,10 @@ use clap::Parser;
 use inspire_pir::math::GaussianSampler;
 use inspire_pir::params::{InspireVariant, ShardConfig};
 use inspire_pir::rlwe::RlweSecretKey;
-use inspire_pir::{extract_with_variant, query as pir_query, ServerCrs};
+use inspire_pir::{
+    extract_with_variant, query as pir_query, query_switched as pir_query_switched, ServerCrs,
+    SwitchedClientQuery,
+};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +28,10 @@ struct Args {
     /// Index to query
     #[arg(long, default_value = "0")]
     index: u64,
+
+    /// Use switched+seeded query (~75% smaller)
+    #[arg(long)]
+    switched: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +43,11 @@ struct CrsResponse {
 #[derive(Debug, Serialize)]
 struct QueryRequest {
     query: inspire_pir::ClientQuery,
+}
+
+#[derive(Debug, Serialize)]
+struct SwitchedQueryRequest {
+    query: SwitchedClientQuery,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
         server = %args.server,
         lane = %args.lane,
         index = args.index,
+        switched = args.switched,
         "Testing PIR query"
     );
 
@@ -77,21 +90,51 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Secret key generated");
 
     // Create query
-    let (client_state, query) =
-        pir_query(&crs, args.index, &crs_resp.shard_config, &sk, &mut sampler)
-            .map_err(|e| anyhow::anyhow!("Query generation failed: {}", e))?;
+    let (client_state, full_query, switched_query, endpoint) = if args.switched {
+        let (state, query) =
+            pir_query_switched(&crs, args.index, &crs_resp.shard_config, &sk, &mut sampler)
+                .map_err(|e| anyhow::anyhow!("Query generation failed: {}", e))?;
+        (
+            state,
+            None,
+            Some(query),
+            format!("{}/query/{}/switched", args.server, args.lane),
+        )
+    } else {
+        let (state, query) =
+            pir_query(&crs, args.index, &crs_resp.shard_config, &sk, &mut sampler)
+                .map_err(|e| anyhow::anyhow!("Query generation failed: {}", e))?;
+        (
+            state,
+            Some(query),
+            None,
+            format!("{}/query/{}", args.server, args.lane),
+        )
+    };
     tracing::info!("Query generated");
 
     // Send query
     tracing::info!("Sending query to server...");
     let start = std::time::Instant::now();
-    let resp: QueryResponse = client
-        .post(format!("{}/query/{}", args.server, args.lane))
-        .json(&QueryRequest { query })
-        .send()
-        .await?
-        .json()
-        .await?;
+    let resp: QueryResponse = if let Some(query) = switched_query {
+        client
+            .post(endpoint)
+            .json(&SwitchedQueryRequest { query })
+            .send()
+            .await?
+            .json()
+            .await?
+    } else {
+        client
+            .post(endpoint)
+            .json(&QueryRequest {
+                query: full_query.expect("full query missing"),
+            })
+            .send()
+            .await?
+            .json()
+            .await?
+    };
     let elapsed = start.elapsed();
     tracing::info!(elapsed_ms = elapsed.as_millis(), "Response received");
 

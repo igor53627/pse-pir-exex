@@ -18,6 +18,9 @@ pub mod setup;
 #[cfg(feature = "exex")]
 pub mod exex;
 
+#[cfg(feature = "exex")]
+pub mod delta_exex;
+
 #[cfg(feature = "backfill")]
 pub mod gas_tracker;
 
@@ -32,6 +35,9 @@ pub use setup::{default_params, load_secret_key, test_params, TwoLaneSetup, TwoL
 
 #[cfg(feature = "exex")]
 pub use exex::{lane_updater_exex, LaneUpdaterConfig};
+
+#[cfg(feature = "exex")]
+pub use delta_exex::{delta_export_exex, DeltaExporterConfig};
 
 #[cfg(feature = "backfill")]
 pub use gas_tracker::{BackfillConfig, BackfillResult, GasStats, GasTracker};

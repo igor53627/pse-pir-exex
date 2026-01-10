@@ -8,8 +8,9 @@ use inspire_pir::math::GaussianSampler;
 use inspire_pir::params::InspireVariant;
 use inspire_pir::rlwe::RlweSecretKey;
 use inspire_pir::{
-    extract_with_variant, query as pir_query, query_seeded as pir_query_seeded, ClientQuery,
-    ClientState, InspireParams, SeededClientQuery, ServerCrs, ServerResponse,
+    extract_with_variant, query as pir_query, query_seeded as pir_query_seeded,
+    query_switched as pir_query_switched, ClientQuery, ClientState, InspireParams,
+    SeededClientQuery, ServerCrs, ServerResponse, SwitchedClientQuery,
 };
 
 use crate::bucket_index::BucketIndex;
@@ -36,6 +37,12 @@ struct SeededQueryRequest {
     query: SeededClientQuery,
 }
 
+/// Request to switched query endpoint (~75% smaller)
+#[derive(Serialize)]
+struct SwitchedQueryRequest {
+    query: SwitchedClientQuery,
+}
+
 /// Response from query endpoint
 #[derive(Deserialize)]
 pub struct QueryResponse {
@@ -60,6 +67,8 @@ pub struct TwoLaneClient {
     cold_state: Option<LaneState>,
     /// Use seed expansion for ~50% smaller queries
     use_seed_expansion: bool,
+    /// Use switched+seeded queries for maximum compression
+    use_switched_query: bool,
     /// Use binary responses for ~58% smaller downloads
     use_binary_response: bool,
     /// Bucket index for sparse lookups (optional, used for cold lane)
@@ -78,7 +87,7 @@ impl std::fmt::Debug for TwoLaneClient {
 impl TwoLaneClient {
     /// Create a new client with the given router and server URL
     pub fn new(router: LaneRouter, server_url: String) -> Self {
-        Self::with_options(router, server_url, true, true) // seed expansion + binary response on by default
+        Self::with_options(router, server_url, true, false, true) // seed expansion + binary response on by default
     }
 
     /// Create a new client with explicit settings
@@ -86,6 +95,7 @@ impl TwoLaneClient {
         router: LaneRouter,
         server_url: String,
         use_seed_expansion: bool,
+        use_switched_query: bool,
         use_binary_response: bool,
     ) -> Self {
         Self {
@@ -95,6 +105,7 @@ impl TwoLaneClient {
             hot_state: None,
             cold_state: None,
             use_seed_expansion,
+            use_switched_query,
             use_binary_response,
             bucket_index: None,
         }
@@ -211,7 +222,17 @@ impl TwoLaneClient {
         let lane_state = self.get_lane_state(lane)?;
         let index = self.compute_index(&contract, &slot, lane)?;
 
-        let (client_state, server_response) =
+        let (client_state, server_response) = if self.use_switched_query {
+            if self.use_binary_response {
+                let (state, query) = self.build_pir_query_switched(lane_state, index)?;
+                let resp = self.send_query_switched_binary(lane, &query).await?;
+                (state, resp)
+            } else {
+                let (state, query) = self.build_pir_query_switched(lane_state, index)?;
+                let resp = self.send_query_switched(lane, &query).await?;
+                (state, resp.response)
+            }
+        } else {
             match (self.use_seed_expansion, self.use_binary_response) {
                 (true, true) => {
                     let (state, query) = self.build_pir_query_seeded(lane_state, index)?;
@@ -233,7 +254,8 @@ impl TwoLaneClient {
                     let resp = self.send_query(lane, &query).await?;
                     (state, resp.response)
                 }
-            };
+            }
+        };
 
         let entry = extract_with_variant(
             &lane_state.crs,
@@ -286,6 +308,28 @@ impl TwoLaneClient {
         )
         .map_err(|e| {
             ClientError::InvalidResponse(format!("Failed to build seeded query: {}", e))
+        })?;
+
+        Ok((state, query))
+    }
+
+    /// Build a switched PIR query for the given index (~75% smaller)
+    fn build_pir_query_switched(
+        &self,
+        lane_state: &LaneState,
+        index: u64,
+    ) -> Result<(ClientState, SwitchedClientQuery)> {
+        let mut sampler = GaussianSampler::new(lane_state.crs.params.sigma);
+
+        let (state, query) = pir_query_switched(
+            &lane_state.crs,
+            index,
+            &lane_state.shard_config,
+            &lane_state.secret_key,
+            &mut sampler,
+        )
+        .map_err(|e| {
+            ClientError::InvalidResponse(format!("Failed to build switched query: {}", e))
         })?;
 
         Ok((state, query))
@@ -355,6 +399,65 @@ impl TwoLaneClient {
             .http
             .post(&url)
             .json(&SeededQueryRequest {
+                query: query.clone(),
+            })
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(ClientError::Server {
+                status: resp.status().as_u16(),
+                message: resp.text().await.unwrap_or_default(),
+            });
+        }
+
+        let bytes = resp.bytes().await?;
+        let response = ServerResponse::from_binary(&bytes).map_err(|e| {
+            ClientError::InvalidResponse(format!("Failed to decode binary response: {}", e))
+        })?;
+        Ok(response)
+    }
+
+    /// Send a switched query to the server (~75% smaller)
+    async fn send_query_switched(
+        &self,
+        lane: Lane,
+        query: &SwitchedClientQuery,
+    ) -> Result<QueryResponse> {
+        let url = format!("{}/query/{}/switched", self.server_url, lane);
+
+        let resp = self
+            .http
+            .post(&url)
+            .json(&SwitchedQueryRequest {
+                query: query.clone(),
+            })
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(ClientError::Server {
+                status: resp.status().as_u16(),
+                message: resp.text().await.unwrap_or_default(),
+            });
+        }
+
+        let query_resp: QueryResponse = resp.json().await?;
+        Ok(query_resp)
+    }
+
+    /// Send a switched query with binary response
+    async fn send_query_switched_binary(
+        &self,
+        lane: Lane,
+        query: &SwitchedClientQuery,
+    ) -> Result<ServerResponse> {
+        let url = format!("{}/query/{}/switched/binary", self.server_url, lane);
+
+        let resp = self
+            .http
+            .post(&url)
+            .json(&SwitchedQueryRequest {
                 query: query.clone(),
             })
             .send()
@@ -490,6 +593,7 @@ pub struct ClientBuilder {
     server_url: String,
     manifest_path: Option<std::path::PathBuf>,
     use_seed_expansion: bool,
+    use_switched_query: bool,
     use_binary_response: bool,
 }
 
@@ -499,6 +603,7 @@ impl ClientBuilder {
             server_url: server_url.into(),
             manifest_path: None,
             use_seed_expansion: true,  // on by default
+            use_switched_query: false,
             use_binary_response: true, // on by default
         }
     }
@@ -511,6 +616,12 @@ impl ClientBuilder {
     /// Enable/disable seed expansion (~50% smaller queries)
     pub fn seed_expansion(mut self, enabled: bool) -> Self {
         self.use_seed_expansion = enabled;
+        self
+    }
+
+    /// Enable/disable switched+seeded queries (~75% smaller queries)
+    pub fn switched_query(mut self, enabled: bool) -> Self {
+        self.use_switched_query = enabled;
         self
     }
 
@@ -532,6 +643,7 @@ impl ClientBuilder {
             router,
             self.server_url,
             self.use_seed_expansion,
+            self.use_switched_query,
             self.use_binary_response,
         ))
     }
